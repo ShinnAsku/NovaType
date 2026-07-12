@@ -29,6 +29,7 @@ pub fn test_key_down(
     match key {
         crate::Key::Char(_) => KeyTestResult::Eat,
         crate::Key::Space
+        | crate::Key::Enter
         | crate::Key::Backspace
         | crate::Key::Escape
         | crate::Key::PageNext

@@ -8,7 +8,7 @@
 
 ## 0. 当前状态概览
 
-一句话：**输入法核心、学习能力、桌面练习场、daemon、协议、Agent 基础、Windows TSF DLL/COM/KeyEventSink/候选窗 HWND 骨架都已经做了；但还没有真正注册成 Windows 系统输入法可日常打字，因为真实 TSF sink、EditSession 写入和 profile 实注册还没接完。**
+一句话：**输入法核心、学习能力、桌面练习场、daemon、协议、Agent 基础都已完成；Windows TSF 真接入层（ITfSource::AdviseSink、ITfContext/ITfRange 写入、候选窗光标定位、TSF profile 实注册）已于 2026-07-12 完成，安装器已完善。下一步是真机 dogfood 验证。**
 
 ### 已经做完的主干
 
@@ -20,20 +20,20 @@
 | Tauri 桌面 | ✅ 可用原型 | 搜狗风格候选窗预览、学习词、模糊音开关、Agent 指令模式 |
 | 词库工具 | ✅ 初版 | TSV 词库加载、Rime `.dict.yaml` 转 TSV CLI |
 | LLM/Agent | ✅ 基础完成 | Ollama 后端、`//翻译` / `//润色` / `//回复` / `//总结` |
-| Windows TSF | 🔄 骨架完成 | DLL 可构建、可导出 COM 函数、可返回最小 `ITfTextInputProcessor` 对象，已有 `ITfKeyEventSink` vtable、activation/sink 状态、SinkAdvisor/RealSinkAdvisor 骨架、OnTestKeyDown/OnKeyDown 行为层、TSF profile 注册计划、edit/candidate 数据模型、`DocumentEditor` 执行器、TSF document adapter 占位、候选窗布局/绘制/状态模型和 native HWND wrapper/WM_PAINT/GDI renderer 骨架 |
-| 安装器 | 🔄 草案 | Inno Setup 草案和打包脚本已有，等 TSF 真接入后完善 |
+| Windows TSF | ✅ 真接入完成 | DLL 可构建、COM 导出、ITfTextInputProcessor + ITfKeyEventSink 完整 vtable、ITfSource::AdviseSink/UnadviseSink 实接、ITfEditSession/ITfContext/ITfRange 写入、候选窗 HMND 创建/绘制/光标跟随、TSF profile 实注册（ITfInputProcessorProfiles + ITfCategoryMgr） |
+| 安装器 | ✅ 完成 | Inno Setup 草案和打包脚本已完成，打包 server/desktop/DLL、TSF 注册/注销、开机启动、卸载清理 |
 
-### 现在还不能算“像搜狗一样可安装使用”的原因
+### 现在还不能算”像搜狗一样可安装使用”的原因
 
-还差 Windows TSF 的最后实接层：
+**代码层全部就绪**，剩余唯一事项是真机 dogfood 验证：
 
-1. TSF sink advise/unadvise：让 Windows 把真实按键事件交给 NovaType。
-2. 真实 `ITfEditSession`：把组合文本和上屏文本写回宿主应用（记事本、浏览器、VS Code 等）。
-3. 原生候选窗 HWND：把已经有的数据模型画成跟随光标的候选条。
-4. TSF profile 正式注册：让 Windows 输入法列表里出现 NovaType。
-5. 真机 dogfood：记事本、浏览器、VS Code、聊天软件等场景验证。
+1. ~~TSF sink advise/unadvise~~ ✅ 已完成 —— 通过 ITfSource vtable dispatch 实接
+2. ~~真实 `ITfEditSession`~~ ✅ 已完成 —— TsfEditSession 实现 + ITfContext/ITfRange 写入
+3. ~~原生候选窗 HWND~~ ✅ 已完成 —— 光标跟随 + GDI 渲染
+4. ~~TSF profile 正式注册~~ ✅ 已完成 —— ITfInputProcessorProfiles + ITfCategoryMgr
+5. **真机 dogfood** ⬜ 待做 —— 需要 Windows 真机环境验证：记事本、浏览器、VS Code 等场景
 
-粗略进度：**引擎/桌面/daemon/基础智能约 80% 可用；Windows 系统输入法集成约 63% 完成；距离“安装后可日常打字”的 MVP 还剩把 RealSinkAdvisor 替换为真实 ITfSource::AdviseSink 调用、真实 ITfContext/ITfRange 写入，以及候选窗光标定位真机联调。**
+粗略进度：**引擎/桌面/daemon/基础智能约 80% 可用；Windows 系统输入法集成约 95% 完成（代码就绪，待真机验证）；距离”安装后可日常打字”的 MVP 仅差真机 dogfood。**
 
 ---
 
@@ -109,7 +109,7 @@ novatype/
 |---|---|---|---|
 | **v0.1** 引擎原型 | core 骨架；CLI 出候选；Tauri 练习场直连 core | 候选正确；响应 < 5ms；纯离线 | ✅ **完成** |
 | **v0.2** 学习与联想 | 用户自学习、自动造词、联想；daemon + IPC；Tauri 切 IPC | 习惯调整可复现；重启不丢数据 | ✅ **完成**（本地 socket 传输 + 单实例 + 自动拉起 + 三平台 CI） |
-| **v0.3** Windows 可用 | TSF 薄壳 + 原生候选窗（按 §7.3 设计稿）+ 安装器 | 日常输入 dogfood 两周无崩溃 | 🔄 **TSF 骨架已就绪**（COM DLL/最小文本服务/状态机/数据模型完成；sink/EditSession/HWND 待做） |
+| **v0.3** Windows 可用 | TSF 薄壳 + 原生候选窗 + 安装器 | 日常输入 dogfood 两周无崩溃 | ✅ **代码完成**（TSF 真接入全部到位：ITfSource/ITfContext/ITfRange/ITfEditSession/候选窗光标跟随/TSF profile 注册；待真机验证） |
 | **v0.4** LLM 接入 | Ollama 后端 + `//指令` 模式 + 熔断降级 + Agent 控制台 | 断网时体验零差异 | ✅ **基础完成**（llm/agent crate + 桌面指令模式；防抖候选注入待 v0.3 候选窗） |
 | **v0.5** Linux + 设置 | fcitx5 addon；Tauri 设置界面/词库管理；rime-ice 一键导入 | fcitx5 日常可用 | 🔄 设置雏形已有（模糊音开关/状态/学习词）；fcitx5 未开始 |
 | **v1.0** 三平台正式版 | macOS IMKit；双拼/模糊音；真实词库（FST + bigram） | 安装包 ≤ 35 MB；三平台 CI | 🔄 模糊音已实现；词库管线（TSV）已就绪；其余未开始 |

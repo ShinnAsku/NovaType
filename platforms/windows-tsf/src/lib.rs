@@ -9,6 +9,7 @@
 //! rakukan (out-of-process engine host).
 
 pub mod candidate_window;
+pub(crate) mod debug_log;
 pub mod edit_session;
 pub mod key_event;
 pub mod keymap;
@@ -139,6 +140,7 @@ pub enum Key {
     /// Digit 1-9 selecting a candidate on the current page.
     Digit(u8),
     Space,
+    Enter,
     Backspace,
     Escape,
     PageNext,
@@ -253,6 +255,17 @@ impl<C: EngineClient> InputSession<C> {
             Key::Char(_) => SessionAction::PassThrough,
             Key::Digit(digit) => self.select_action(digit as usize),
             Key::Space => self.select_action(1),
+            Key::Enter => {
+                if !self.is_composing() {
+                    return SessionAction::PassThrough;
+                }
+                if self.candidates.is_empty() {
+                    self.clear();
+                    SessionAction::Dismiss
+                } else {
+                    self.select_action(1)
+                }
+            }
             Key::Backspace => {
                 if !self.is_composing() {
                     return SessionAction::PassThrough;
@@ -420,6 +433,23 @@ mod tests {
 
         assert_eq!(outcome, Outcome::Commit("词0".to_string()));
         assert!(!session.is_composing());
+    }
+
+    #[test]
+    fn enter_commits_or_clears_active_composition() {
+        let mut session = session();
+        session.handle_key(Key::Char('n'));
+
+        assert_eq!(
+            session.handle_key(Key::Enter),
+            Outcome::Commit("词0".to_string())
+        );
+        assert!(!session.is_composing());
+
+        let mut empty = InputSession::new(MockClient::new());
+        empty.buffer.push('x');
+        assert_eq!(empty.handle_key(Key::Enter), Outcome::Dismissed);
+        assert!(!empty.is_composing());
     }
 
     #[test]

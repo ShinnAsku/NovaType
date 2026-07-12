@@ -3,6 +3,7 @@ use crate::Key;
 /// Windows virtual-key values used by the TSF shell.
 pub const VK_BACK: u32 = 0x08;
 pub const VK_TAB: u32 = 0x09;
+pub const VK_RETURN: u32 = 0x0D;
 pub const VK_ESCAPE: u32 = 0x1B;
 pub const VK_SPACE: u32 = 0x20;
 pub const VK_PRIOR: u32 = 0x21;
@@ -15,6 +16,7 @@ pub const VK_OEM_PLUS: u32 = 0xBB;
 pub fn map_vk(vk: u32) -> Option<Key> {
     match vk {
         VK_BACK => Some(Key::Backspace),
+        VK_RETURN => Some(Key::Enter),
         VK_ESCAPE => Some(Key::Escape),
         VK_SPACE => Some(Key::Space),
         VK_PRIOR | VK_OEM_MINUS => Some(Key::PagePrev),
@@ -27,7 +29,7 @@ pub fn map_vk(vk: u32) -> Option<Key> {
 
 #[cfg(test)]
 mod tests {
-    use super::{VK_BACK, VK_ESCAPE, VK_OEM_MINUS, VK_SPACE, map_vk};
+    use super::{VK_BACK, VK_ESCAPE, VK_OEM_MINUS, VK_RETURN, VK_SPACE, map_vk};
     use crate::Key;
 
     #[test]
@@ -35,6 +37,7 @@ mod tests {
         assert_eq!(map_vk(0x4E), Some(Key::Char('n')));
         assert_eq!(map_vk(0x31), Some(Key::Digit(1)));
         assert_eq!(map_vk(VK_SPACE), Some(Key::Space));
+        assert_eq!(map_vk(VK_RETURN), Some(Key::Enter));
         assert_eq!(map_vk(VK_BACK), Some(Key::Backspace));
         assert_eq!(map_vk(VK_ESCAPE), Some(Key::Escape));
         assert_eq!(map_vk(VK_OEM_MINUS), Some(Key::PagePrev));
