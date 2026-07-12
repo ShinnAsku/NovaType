@@ -8,10 +8,20 @@
 //! Design references: azooKey-Windows (Rust TSF), weasel (C++ TSF), and
 //! rakukan (out-of-process engine host).
 
+pub mod candidate_window;
+pub mod edit_session;
+pub mod key_event;
+pub mod keymap;
 pub mod metadata;
+pub mod profile;
+pub mod sink;
+pub mod tsf_document;
+pub mod window;
 
 #[cfg(windows)]
 mod com;
+#[cfg(windows)]
+pub mod native_window;
 #[cfg(windows)]
 mod registration;
 
@@ -148,6 +158,29 @@ pub enum Outcome {
     Dismissed,
 }
 
+/// Candidate-window state after processing a key.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionSnapshot {
+    pub composition: String,
+    pub candidates: Vec<CandidateDto>,
+    pub page: usize,
+    pub has_prev_page: bool,
+    pub has_next_page: bool,
+}
+
+/// Rich action used by the future TSF edit-session and candidate-window layer.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SessionAction {
+    /// Key is not ours; let the application handle it.
+    PassThrough,
+    /// Composition/candidates changed; update preedit and candidate UI.
+    Update(SessionSnapshot),
+    /// Commit this text to the application and clear composition.
+    Commit(String),
+    /// Composition dismissed; hide the candidate window.
+    Dismiss,
+}
+
 /// Composition state machine shared by all future platform shells.
 pub struct InputSession<C: EngineClient> {
     client: C,
@@ -186,58 +219,81 @@ impl<C: EngineClient> InputSession<C> {
         self.candidates.get(start..end).unwrap_or(&[])
     }
 
+    /// Snapshot for candidate-window rendering and TSF edit sessions.
+    #[must_use]
+    pub fn snapshot(&self) -> SessionSnapshot {
+        let start = self.page * PAGE_SIZE;
+        SessionSnapshot {
+            composition: self.buffer.clone(),
+            candidates: self.page_candidates().to_vec(),
+            page: self.page,
+            has_prev_page: self.page > 0,
+            has_next_page: start + PAGE_SIZE < self.candidates.len(),
+        }
+    }
+
     /// Handles a key event and returns the required UI action.
     pub fn handle_key(&mut self, key: Key) -> Outcome {
+        match self.handle_key_action(key) {
+            SessionAction::PassThrough => Outcome::PassThrough,
+            SessionAction::Update(_) => Outcome::Updated,
+            SessionAction::Commit(text) => Outcome::Commit(text),
+            SessionAction::Dismiss => Outcome::Dismissed,
+        }
+    }
+
+    /// Handles a key event and returns a rich action with render state.
+    pub fn handle_key_action(&mut self, key: Key) -> SessionAction {
         match key {
             Key::Char(letter) if letter.is_ascii_lowercase() => {
                 self.buffer.push(letter);
                 self.refresh();
-                Outcome::Updated
+                SessionAction::Update(self.snapshot())
             }
-            Key::Char(_) => Outcome::PassThrough,
-            Key::Digit(digit) => self.select(digit as usize),
-            Key::Space => self.select(1),
+            Key::Char(_) => SessionAction::PassThrough,
+            Key::Digit(digit) => self.select_action(digit as usize),
+            Key::Space => self.select_action(1),
             Key::Backspace => {
                 if !self.is_composing() {
-                    return Outcome::PassThrough;
+                    return SessionAction::PassThrough;
                 }
                 self.buffer.pop();
                 if self.buffer.is_empty() {
                     self.clear();
-                    return Outcome::Dismissed;
+                    return SessionAction::Dismiss;
                 }
                 self.refresh();
-                Outcome::Updated
+                SessionAction::Update(self.snapshot())
             }
             Key::Escape => {
                 if !self.is_composing() {
-                    return Outcome::PassThrough;
+                    return SessionAction::PassThrough;
                 }
                 self.clear();
-                Outcome::Dismissed
+                SessionAction::Dismiss
             }
-            Key::PageNext => self.turn_page(1),
-            Key::PagePrev => self.turn_page(-1),
+            Key::PageNext => self.turn_page_action(1),
+            Key::PagePrev => self.turn_page_action(-1),
         }
     }
 
-    fn select(&mut self, index_on_page: usize) -> Outcome {
+    fn select_action(&mut self, index_on_page: usize) -> SessionAction {
         if !self.is_composing() {
-            return Outcome::PassThrough;
+            return SessionAction::PassThrough;
         }
         let index = self.page * PAGE_SIZE + index_on_page.saturating_sub(1);
         let Some(candidate) = self.candidates.get(index).cloned() else {
-            return Outcome::Updated;
+            return SessionAction::Update(self.snapshot());
         };
 
         let _predictions = self.client.commit(&candidate.text, &candidate.reading);
         self.clear();
-        Outcome::Commit(candidate.text)
+        SessionAction::Commit(candidate.text)
     }
 
-    fn turn_page(&mut self, delta: i64) -> Outcome {
+    fn turn_page_action(&mut self, delta: i64) -> SessionAction {
         if !self.is_composing() {
-            return Outcome::PassThrough;
+            return SessionAction::PassThrough;
         }
         let last_page = self.candidates.len().saturating_sub(1) / PAGE_SIZE;
         let next = i64::try_from(self.page).unwrap_or_default() + delta;
@@ -247,7 +303,7 @@ impl<C: EngineClient> InputSession<C> {
         if clamped != self.page {
             self.page = clamped;
         }
-        Outcome::Updated
+        SessionAction::Update(self.snapshot())
     }
 
     fn refresh(&mut self) {
@@ -264,7 +320,7 @@ impl<C: EngineClient> InputSession<C> {
 
 #[cfg(test)]
 mod tests {
-    use super::{EngineClient, InputSession, Key, Outcome, PAGE_SIZE};
+    use super::{EngineClient, InputSession, Key, Outcome, PAGE_SIZE, SessionAction};
     use novatype_protocol::CandidateDto;
 
     struct MockClient {
@@ -311,6 +367,48 @@ mod tests {
         assert_eq!(session.handle_key(Key::Char('i')), Outcome::Updated);
         assert_eq!(session.buffer(), "ni");
         assert_eq!(session.page_candidates().len(), PAGE_SIZE);
+    }
+
+    #[test]
+    fn rich_update_contains_snapshot_for_candidate_window() {
+        let mut session = session();
+
+        let action = session.handle_key_action(Key::Char('n'));
+
+        let SessionAction::Update(snapshot) = action else {
+            panic!("expected update");
+        };
+        assert_eq!(snapshot.composition, "n");
+        assert_eq!(snapshot.candidates.len(), PAGE_SIZE);
+        assert_eq!(snapshot.page, 0);
+        assert!(!snapshot.has_prev_page);
+        assert!(snapshot.has_next_page);
+    }
+
+    #[test]
+    fn rich_paging_snapshot_tracks_page_bounds() {
+        let mut session = session();
+        session.handle_key(Key::Char('n'));
+
+        let action = session.handle_key_action(Key::PageNext);
+
+        let SessionAction::Update(snapshot) = action else {
+            panic!("expected update");
+        };
+        assert_eq!(snapshot.page, 1);
+        assert!(snapshot.has_prev_page);
+        assert!(snapshot.has_next_page);
+    }
+
+    #[test]
+    fn rich_commit_carries_text() {
+        let mut session = session();
+        session.handle_key(Key::Char('n'));
+
+        let action = session.handle_key_action(Key::Space);
+
+        assert_eq!(action, SessionAction::Commit("词0".to_string()));
+        assert_eq!(session.snapshot().composition, "");
     }
 
     #[test]

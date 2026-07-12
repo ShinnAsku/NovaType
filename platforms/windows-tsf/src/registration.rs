@@ -1,4 +1,5 @@
 use crate::metadata::{PROFILE_DESCRIPTION, PROFILE_DISPLAY_NAME, TEXT_SERVICE_CLSID};
+use crate::profile::{ProfileRegistrar, ProfileResult, TsfProfile, execute_registration_plan};
 use std::error::Error;
 use winreg::RegKey;
 use winreg::enums::{HKEY_CURRENT_USER, KEY_ALL_ACCESS};
@@ -17,6 +18,12 @@ pub fn register_server() -> RegistrationResult<()> {
     marker.set_value("Description", &PROFILE_DESCRIPTION)?;
     marker.set_value("Clsid", &TEXT_SERVICE_CLSID)?;
     marker.set_value("ModulePath", &module_path.to_string_lossy().to_string())?;
+    let profile = TsfProfile::novatype();
+    marker.set_value("LanguageTag", &profile.language_tag)?;
+    marker.set_value("IconIndex", &profile.icon_index.cast_unsigned())?;
+    let mut registrar = RegistryProfileRegistrar::new(&marker);
+    execute_registration_plan(&mut registrar, &profile.registration_plan())
+        .map_err(std::io::Error::other)?;
 
     let clsid_path = format!("{CLASSES_KEY}\\{TEXT_SERVICE_CLSID}");
     let (clsid, _) = hkcu.create_subkey_with_flags(&clsid_path, KEY_ALL_ACCESS)?;
@@ -27,6 +34,48 @@ pub fn register_server() -> RegistrationResult<()> {
     inproc.set_value("ThreadingModel", &"Apartment")?;
 
     Ok(())
+}
+
+struct RegistryProfileRegistrar<'a> {
+    marker: &'a RegKey,
+    index: u32,
+}
+
+impl<'a> RegistryProfileRegistrar<'a> {
+    fn new(marker: &'a RegKey) -> Self {
+        Self { marker, index: 0 }
+    }
+
+    fn record(&mut self, value: &str) -> ProfileResult<()> {
+        let name = format!("ProfileStep{}", self.index);
+        self.marker
+            .set_value(name, &value)
+            .map_err(|error| error.to_string())?;
+        self.index += 1;
+        Ok(())
+    }
+}
+
+impl ProfileRegistrar for RegistryProfileRegistrar<'_> {
+    fn register_text_service(&mut self, clsid: &str) -> ProfileResult<()> {
+        self.record(&format!("RegisterTextService:{clsid}"))
+    }
+
+    fn register_language_profile(
+        &mut self,
+        clsid: &str,
+        language_tag: &str,
+        description: &str,
+        icon_index: i32,
+    ) -> ProfileResult<()> {
+        self.record(&format!(
+            "RegisterLanguageProfile:{clsid}:{language_tag}:{description}:{icon_index}"
+        ))
+    }
+
+    fn enable_language_profile(&mut self, clsid: &str, language_tag: &str) -> ProfileResult<()> {
+        self.record(&format!("EnableLanguageProfile:{clsid}:{language_tag}"))
+    }
 }
 
 fn module_path() -> std::path::PathBuf {

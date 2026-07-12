@@ -27,6 +27,7 @@ cargo run -p novatype-dict --bin rime-to-tsv -- path\to\input.dict.yaml output.t
 cargo build -p novatype-tsf --release
 platforms\windows-tsf\check-exports.ps1
 platforms\windows-tsf\verify-registration.ps1  # registers/unregisters via regsvr32
+installer\windows\check-size.ps1               # checks <=35MB budget
 
 cd apps/desktop
 npm install

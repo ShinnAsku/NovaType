@@ -6,6 +6,37 @@
 
 ---
 
+## 0. 当前状态概览
+
+一句话：**输入法核心、学习能力、桌面练习场、daemon、协议、Agent 基础、Windows TSF DLL/COM 骨架都已经做了；但还没有真正注册成 Windows 系统输入法可日常打字，因为 TSF sink、EditSession 和原生候选窗还没接完。**
+
+### 已经做完的主干
+
+| 模块 | 状态 | 说明 |
+|---|---|---|
+| 离线拼音引擎 | ✅ 完成原型 | 拼音切分、候选生成、Viterbi/Beam、模糊音、动态加词 |
+| 用户学习 | ✅ 完成原型 | redb 本地存储、上屏即学、时间衰减、自动造词、联想 |
+| daemon/IPC | ✅ 完成 | `novatyped`、本地 socket、bincode 协议、CLI/Tauri 客户端 |
+| Tauri 桌面 | ✅ 可用原型 | 搜狗风格候选窗预览、学习词、模糊音开关、Agent 指令模式 |
+| 词库工具 | ✅ 初版 | TSV 词库加载、Rime `.dict.yaml` 转 TSV CLI |
+| LLM/Agent | ✅ 基础完成 | Ollama 后端、`//翻译` / `//润色` / `//回复` / `//总结` |
+| Windows TSF | 🔄 骨架完成 | DLL 可构建、可导出 COM 函数、可返回最小 `ITfTextInputProcessor` 对象，已有 `ITfKeyEventSink` vtable、activation/sink 状态、OnTestKeyDown/OnKeyDown 行为层、TSF profile 注册计划、edit/candidate 数据模型、`DocumentEditor` 执行器、TSF document adapter 占位、候选窗布局/绘制/状态模型和 native HWND wrapper/WM_PAINT/GDI renderer 骨架 |
+| 安装器 | 🔄 草案 | Inno Setup 草案和打包脚本已有，等 TSF 真接入后完善 |
+
+### 现在还不能算“像搜狗一样可安装使用”的原因
+
+还差 Windows TSF 的最后实接层：
+
+1. TSF sink advise/unadvise：让 Windows 把真实按键事件交给 NovaType。
+2. 真实 `ITfEditSession`：把组合文本和上屏文本写回宿主应用（记事本、浏览器、VS Code 等）。
+3. 原生候选窗 HWND：把已经有的数据模型画成跟随光标的候选条。
+4. TSF profile 正式注册：让 Windows 输入法列表里出现 NovaType。
+5. 真机 dogfood：记事本、浏览器、VS Code、聊天软件等场景验证。
+
+粗略进度：**引擎/桌面/daemon/基础智能约 80% 可用；Windows 系统输入法集成约 62% 完成；距离“安装后可日常打字”的 MVP 还剩真实 ITfSource::AdviseSink 接线、真实 ITfContext/ITfRange 写入，以及候选窗光标定位真机联调。**
+
+---
+
 ## 1. 方案设计（一页速览）
 
 | 维度 | 决策 |
@@ -64,7 +95,7 @@ novatype/
 │   ├── novatype-agent/     # //翻译 //润色 //回复 //总结 指令解析      ✅
 │   └── novatype-cli/       # 可学习 REPL + --server 协议客户端        ✅
 ├── platforms/
-│   └── windows-tsf/        # 输入会话状态机 + daemon 客户端 + 注册元数据（COM 待接）🔄
+│   └── windows-tsf/        # 状态机 + COM DLL 骨架 + 最小文本服务对象（TSF sink/EditSession 待接）🔄
 ├── apps/desktop/           # Tauri 2：练习场 + 设置 + 学习词 + Agent    ✅
 ├── installer/windows/      # Inno Setup 草案 + build-package.ps1         🔄
 └── .github/workflows/      # 三平台 CI（fmt/clippy/test + 前端）        ✅
@@ -78,7 +109,7 @@ novatype/
 |---|---|---|---|
 | **v0.1** 引擎原型 | core 骨架；CLI 出候选；Tauri 练习场直连 core | 候选正确；响应 < 5ms；纯离线 | ✅ **完成** |
 | **v0.2** 学习与联想 | 用户自学习、自动造词、联想；daemon + IPC；Tauri 切 IPC | 习惯调整可复现；重启不丢数据 | ✅ **完成**（本地 socket 传输 + 单实例 + 自动拉起 + 三平台 CI） |
-| **v0.3** Windows 可用 | TSF 薄壳 + 原生候选窗（按 §7.3 设计稿）+ 安装器 | 日常输入 dogfood 两周无崩溃 | 🔄 **会话核心已就绪**（状态机+客户端全单测；COM 胶水待做） |
+| **v0.3** Windows 可用 | TSF 薄壳 + 原生候选窗（按 §7.3 设计稿）+ 安装器 | 日常输入 dogfood 两周无崩溃 | 🔄 **TSF 骨架已就绪**（COM DLL/最小文本服务/状态机/数据模型完成；sink/EditSession/HWND 待做） |
 | **v0.4** LLM 接入 | Ollama 后端 + `//指令` 模式 + 熔断降级 + Agent 控制台 | 断网时体验零差异 | ✅ **基础完成**（llm/agent crate + 桌面指令模式；防抖候选注入待 v0.3 候选窗） |
 | **v0.5** Linux + 设置 | fcitx5 addon；Tauri 设置界面/词库管理；rime-ice 一键导入 | fcitx5 日常可用 | 🔄 设置雏形已有（模糊音开关/状态/学习词）；fcitx5 未开始 |
 | **v1.0** 三平台正式版 | macOS IMKit；双拼/模糊音；真实词库（FST + bigram） | 安装包 ≤ 35 MB；三平台 CI | 🔄 模糊音已实现；词库管线（TSV）已就绪；其余未开始 |
@@ -119,12 +150,12 @@ v0.2 已收口。本轮（P0–P4）新增：
 - **P2 离线质量**：模糊音（zh/ch/sh、ang/eng/ing，可开关）；`novatype-dict` TSV 词库管线 + Rime `.dict.yaml` 转 TSV CLI；基准测试（top-1 准确率 + 延迟预算，实测 ~19µs/查询）
 - **P3 桌面正式化第一步**：协议新增 Status/SetFuzzy/LearnedWords；设置区（模糊音开关、引擎状态、学习词列表）
 - **P4 LLM/Agent**：`novatype-llm`（LlmBackend + Ollama，超时熔断）；`novatype-agent`（//翻译 //润色 //回复 //总结）；桌面指令模式（回车执行、一键上屏、失败降级）
-- **P1 会话核心 / DLL 骨架**：`platforms/windows-tsf` 输入会话状态机（按键→组合→候选→上屏/翻页/退格/Esc，全单测）+ DaemonClient + TSF 注册元数据 + `novatype_tsf.dll` 导出 regsvr32 入口 + minimal `IClassFactory` + minimal `ITfTextInputProcessor` (`Activate`/`Deactivate`)
-- **安装器雏形**：`installer/windows/novatype.iss`（server/desktop 打包、启动项、TSF regserver TODO）和 `build-package.ps1`
+- **P1 会话核心 / DLL 骨架**：`platforms/windows-tsf` 输入会话状态机（按键→组合→候选→上屏/翻页/退格/Esc，全单测）+ DaemonClient + TSF 注册元数据/Profile 注册计划 + `novatype_tsf.dll` 导出 regsvr32 入口 + minimal `IClassFactory` + minimal `ITfTextInputProcessor` + `ITfKeyEventSink` vtable（activation state + sink lifecycle + keymap/key_event path）+ edit-session operation planner/executor + TSF document adapter 占位 + candidate-window presentation/layout/paint/state model + native HWND wrapper/GDI renderer skeleton + WM_PAINT text drawing
+- **安装器雏形**：`installer/windows/novatype.iss`（server/desktop 打包、启动项、TSF regserver TODO）、`build-package.ps1` 和 `check-size.ps1`；当前核心产物约 7.39 MB / 35 MB
 
 ### ⬜ 待办（需真机/人工验证或大体量，下轮优先级）
 
-1. **TSF COM 胶水层**（v0.3 核心）：`ITfTextInputProcessor` sink lifecycle、EditSession、候选窗 HWND；需管理员注册 + 真机 dogfood（参考 azooKey-Windows/weasel）
+1. **TSF COM 胶水层**（v0.3 核心）：真实 `ITfSource::AdviseSink`/`UnadviseSink`、真实 `ITfContext`/`ITfRange` 写入、候选窗 HWND 创建/绘制；需管理员注册 + 真机 dogfood（参考 azooKey-Windows/weasel）
 2. Windows 安装器（Inno Setup：注册 TSF + 开机启动 + 卸载清理）
 3. 真实词库：rime-essay 转 TSV 打包 + rime-ice 导入向导 + FST 存储（Rime 转 TSV 已有，FST 待做）
 4. 自训 bigram 语言模型（语料清洗/量化）
