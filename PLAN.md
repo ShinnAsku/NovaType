@@ -2,7 +2,7 @@
 
 > Rust 跨平台智能拼音输入法：完全离线可用 · 用户习惯自学习 · 可插拔 LLM Agent
 >
-> 版本：v1.0（2026-07-12）　状态：v0.2 进行中——自学习/联想/自动造词/daemon/IPC/Tauri 协议客户端已落地
+> 版本：v1.0（2026-07-12）　状态：v0.3 Windows TSF 集成中——引擎/学习/daemon/Tauri/Agent 基础完成，TSF DLL/COM/KeyEventSink/候选窗 HWND 骨架已落地
 
 ---
 
@@ -66,6 +66,20 @@
 2. **IPC 用长度前缀 + bincode**：本地进程间无兼容包袱，比 JSON-RPC 快。
 3. **LLM 永不打包**：对接用户已装的 Ollama 或云端 API；本地内嵌模型（candle）留到 v2。
 4. **Tauri 桌面应用是 novatyped 的另一个 IPC 客户端**：与平台薄壳平级，不在输入按键路径上。
+
+### 3.2 当前实现快照（2026-07-12）
+
+当前已实现：
+
+- `novatype-core`：拼音切分、候选生成、Viterbi/Beam、模糊音、动态加词。
+- `novatype-model`：redb 用户学习、时间衰减、自动造词、联想。
+- `novatype-protocol/server`：本地 socket + bincode，`novatyped` 守护进程，CLI/Tauri 客户端。
+- `novatype-dict`：TSV 词库加载，Rime `.dict.yaml` 转 TSV。
+- `novatype-llm/agent`：Ollama 后端、`//翻译` / `//润色` / `//回复` / `//总结`。
+- `apps/desktop`：Tauri 练习场、模糊音开关、学习词、Agent 指令模式。
+- `platforms/windows-tsf`：COM DLL 导出、最小 `IClassFactory`、最小 `ITfTextInputProcessor`、`ITfKeyEventSink` vtable、key event 行为层、edit operation planner/executor、TSF document adapter 占位、candidate HWND wrapper、`WM_PAINT`/GDI 骨架、candidate-window smoke 程序。
+
+当前还没实现：真实 `ITfSource::AdviseSink`、真实 `ITfContext`/`ITfRange` 写入、TSF profile 实调、候选窗真实光标定位与真机 dogfood。
 
 ### 3.1 跨平台策略（目标多平台，实施 Windows 先行）
 
@@ -199,14 +213,14 @@ novatype/
 ├── Cargo.toml            # workspace
 ├── crates/
 │   ├── core/             # 拼音切分、词图、Viterbi
-│   ├── dict/             # FST 编译/加载 + 词库格式转换
+│   ├── dict/             # TSV/Rime 词库转换；FST 编译/加载待接
 │   ├── model/            # bigram + 用户学习模型（redb）
-│   ├── protocol/         # IPC 消息定义（serde + bincode）
+│   ├── protocol/         # 本地 socket + TCP dev fallback，bincode 协议
 │   ├── server/           # novatyped 守护进程
-│   ├── llm/              # LLM 后端抽象（Ollama/OpenAI 兼容）
+│   ├── llm/              # LLM 后端抽象（Ollama）
 │   └── agent/            # 指令解析、prompt 模板
 ├── platforms/
-│   ├── windows-tsf/      # 参考 azooKey-Windows + weasel
+│   ├── windows-tsf/      # COM DLL/KeyEventSink/候选窗 HWND 骨架，TSF 实调进行中
 │   ├── fcitx5-addon/     # C++ 薄壳 + FFI，参考 fcitx5-rime
 │   └── macos-imk/        # objc2 桥接，参考 squirrel
 ├── apps/
@@ -226,12 +240,12 @@ novatype/
 
 | 版本 | 范围 | 验收标准 |
 |---|---|---|
-| **v0.1** 引擎原型 | core + dict + model 骨架；CLI 输入拼音出候选；**Tauri 练习场骨架**（直连 core） | 转换正确率基准集跑通；响应 < 5 ms；纯离线；练习场可视化候选/打分 |
-| **v0.2** 学习与联想 | 用户自学习、自动造词、联想；daemon + IPC 协议；**Tauri 切换到 IPC 客户端** | CLI 模拟连续输入，习惯调整可复现；重启不丢数据 |
-| **v0.3** Windows 可用 | TSF 薄壳 + 原生候选窗 + 安装器 | 记事本/浏览器/VS Code 日常输入自用（dogfood）两周无崩溃 |
-| **v0.4** LLM 接入 | Ollama 后端 + 指令模式 + 熔断降级；**Tauri Agent 控制台** | 断网/杀掉 Ollama 时体验零差异 |
-| **v0.5** Linux + 设置 | fcitx5 addon；**Tauri 设置界面 + 词库管理**；词库导入 | fcitx5 下日常可用；rime-ice 一键导入 |
-| **v1.0** 三平台正式版 | macOS IMKit；双拼/模糊音；打包合规 | 安装包 ≤ 35 MB；三平台 CI 出包 |
+| **v0.1** 引擎原型 | core + dict + model 骨架；CLI 输入拼音出候选；Tauri 练习场 | 转换正确率基准集跑通；响应 < 5 ms；纯离线；练习场可视化候选/打分 | ✅ 完成 |
+| **v0.2** 学习与联想 | 用户自学习、自动造词、联想；daemon + IPC 协议；Tauri 切换到 IPC 客户端 | CLI 模拟连续输入，习惯调整可复现；重启不丢数据 | ✅ 完成 |
+| **v0.3** Windows 可用 | TSF 薄壳 + 原生候选窗 + 安装器 | 记事本/浏览器/VS Code 日常输入自用（dogfood）两周无崩溃 | 🔄 约 63%，TSF 实调剩余 |
+| **v0.4** LLM 接入 | Ollama 后端 + 指令模式 + 熔断降级；Tauri Agent 控制台 | 断网/杀掉 Ollama 时体验零差异 | ✅ 基础完成 |
+| **v0.5** Linux + 设置 | fcitx5 addon；Tauri 设置界面 + 词库管理；词库导入 | fcitx5 下日常可用；rime-ice 一键导入 | 🔄 设置雏形已有；fcitx5 未开始 |
+| **v1.0** 三平台正式版 | macOS IMKit；双拼/模糊音；打包合规 | 安装包 ≤ 35 MB；三平台 CI 出包 | 🔄 基础 CI/模糊音/词库管线已完成 |
 | **v2.0** Agent 深化 | candle 内嵌小模型（重排序）、插件 API、tool-calling | 无 GPU 机器上 rerank < 50 ms |
 
 **开发纪律**：v0.1/v0.2 坚持 CLI 先行——引擎质量用基准测试打磁实之后，才碰平台层（TSF/IMKit 是全项目最大工作量，rakukan 的 README 也自证了这一点）。
@@ -249,6 +263,7 @@ novatype/
 | LLM 延迟破坏打字节奏 | 低 | 防抖 + 熔断已是实证方案（Wisdom-Weasel） |
 | 目标机缺 WebView2 Runtime | 低 | Win10/11 基本自带；安装器带 bootstrapper 在线补装 |
 | 误把候选窗做进 Tauri 导致延迟/跟随问题 | 中 | 职责边界已明确（§7.1）：候选窗保持原生实现 |
+| TSF 真机行为与模型不一致 | 高 | 已将 key/edit/candidate 行为拆成可测模型；剩余真实 TSF API 接线必须真机 dogfood |
 
 ---
 
@@ -256,5 +271,48 @@ novatype/
 
 1. **项目许可证**：MIT。
 2. **多平台**：Windows / Linux / macOS 全支持是硬性目标，架构按 §3.1 钢红线约束；**实施 Windows 先行**。
-3. **当前执行**：v0.1 引擎原型。
-4. **桌面应用**：Tauri 2（职责边界见 §7，待审核确认后实施）。
+3. **当前执行**：v0.3 Windows TSF 真接入。
+4. **桌面应用**：Tauri 2（练习场/设置/词库/Agent）。
+
+---
+
+## 12. 接力任务清单（给后续实现者）
+
+当前可直接继续的高优先级任务：
+
+1. **真实 `ITfSource::AdviseSink/UnadviseSink`**
+        - 文件：`platforms/windows-tsf/src/sink.rs`、`com.rs`
+        - 现状：`SinkAdvisor`/`RealSinkAdvisor` 抽象已有，`LocalSinkAdvisor` 当前在用。
+        - 目标：用 `windows-rs` 的 `ITfSource` 调用替换 `RealSinkAdvisor` 占位逻辑，并在 `TextService::Activate/Deactivate` 使用真实 advisor。
+
+2. **真实 `ITfContext` / `ITfRange` 写入**
+        - 文件：`platforms/windows-tsf/src/tsf_document.rs`、`edit_session.rs`
+        - 现状：`DocumentEditor` trait、operation executor、`TsfDocumentEditor` 占位已有。
+        - 目标：实现真正的 composition/preedit 更新和 commit text 写入。
+
+3. **候选窗光标定位与真机联调**
+        - 文件：`native_window.rs`、`window.rs`、`tsf_document.rs`
+        - 现状：HWND wrapper、WM_PAINT/GDI 骨架、smoke 程序已有。
+        - 目标：从 TSF context/range 获取 caret rect，调用 `NativeCandidateWindow::update_view`。
+
+4. **TSF profile 实调**
+        - 文件：`profile.rs`、`registration.rs`
+        - 现状：`ProfileRegistrar` 和注册 plan 已有，当前写 marker。
+        - 目标：调用 `ITfInputProcessorProfiles` 注册/启用语言配置，让 Windows 输入法列表出现 NovaType。
+
+5. **安装器完善**
+        - 文件：`installer/windows/novatype.iss`、`build-package.ps1`
+        - 现状：草案 + 尺寸检查已有，当前核心产物约 7.40 MB / 35 MB。
+        - 目标：打包 TSF DLL、server、desktop；安装/卸载注册清理；开机启动。 
+
+每个任务完成后必须跑：
+
+```powershell
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+cargo build -p novatype-tsf --release
+platforms\windows-tsf\check-exports.ps1
+installer\windows\check-size.ps1
+cd apps\desktop; npm run build
+```

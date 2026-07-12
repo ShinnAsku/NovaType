@@ -2,13 +2,13 @@
 
 > Rust 跨平台智能拼音输入法 · 完全离线可用 · 用户习惯自学习 · 可插拔 LLM Agent
 >
-> 更新日期：2026-07-12　详细方案见 [PLAN.md](PLAN.md)
+> 更新日期：2026-07-12　详细方案见 [PLAN.md](PLAN.md)，接力清单见 [HANDOFF.md](HANDOFF.md)
 
 ---
 
 ## 0. 当前状态概览
 
-一句话：**输入法核心、学习能力、桌面练习场、daemon、协议、Agent 基础、Windows TSF DLL/COM 骨架都已经做了；但还没有真正注册成 Windows 系统输入法可日常打字，因为 TSF sink、EditSession 和原生候选窗还没接完。**
+一句话：**输入法核心、学习能力、桌面练习场、daemon、协议、Agent 基础、Windows TSF DLL/COM/KeyEventSink/候选窗 HWND 骨架都已经做了；但还没有真正注册成 Windows 系统输入法可日常打字，因为真实 TSF sink、EditSession 写入和 profile 实注册还没接完。**
 
 ### 已经做完的主干
 
@@ -20,7 +20,7 @@
 | Tauri 桌面 | ✅ 可用原型 | 搜狗风格候选窗预览、学习词、模糊音开关、Agent 指令模式 |
 | 词库工具 | ✅ 初版 | TSV 词库加载、Rime `.dict.yaml` 转 TSV CLI |
 | LLM/Agent | ✅ 基础完成 | Ollama 后端、`//翻译` / `//润色` / `//回复` / `//总结` |
-| Windows TSF | 🔄 骨架完成 | DLL 可构建、可导出 COM 函数、可返回最小 `ITfTextInputProcessor` 对象，已有 `ITfKeyEventSink` vtable、activation/sink 状态、OnTestKeyDown/OnKeyDown 行为层、TSF profile 注册计划、edit/candidate 数据模型、`DocumentEditor` 执行器、TSF document adapter 占位、候选窗布局/绘制/状态模型和 native HWND wrapper/WM_PAINT/GDI renderer 骨架 |
+| Windows TSF | 🔄 骨架完成 | DLL 可构建、可导出 COM 函数、可返回最小 `ITfTextInputProcessor` 对象，已有 `ITfKeyEventSink` vtable、activation/sink 状态、SinkAdvisor/RealSinkAdvisor 骨架、OnTestKeyDown/OnKeyDown 行为层、TSF profile 注册计划、edit/candidate 数据模型、`DocumentEditor` 执行器、TSF document adapter 占位、候选窗布局/绘制/状态模型和 native HWND wrapper/WM_PAINT/GDI renderer 骨架 |
 | 安装器 | 🔄 草案 | Inno Setup 草案和打包脚本已有，等 TSF 真接入后完善 |
 
 ### 现在还不能算“像搜狗一样可安装使用”的原因
@@ -33,7 +33,7 @@
 4. TSF profile 正式注册：让 Windows 输入法列表里出现 NovaType。
 5. 真机 dogfood：记事本、浏览器、VS Code、聊天软件等场景验证。
 
-粗略进度：**引擎/桌面/daemon/基础智能约 80% 可用；Windows 系统输入法集成约 62% 完成；距离“安装后可日常打字”的 MVP 还剩真实 ITfSource::AdviseSink 接线、真实 ITfContext/ITfRange 写入，以及候选窗光标定位真机联调。**
+粗略进度：**引擎/桌面/daemon/基础智能约 80% 可用；Windows 系统输入法集成约 63% 完成；距离“安装后可日常打字”的 MVP 还剩把 RealSinkAdvisor 替换为真实 ITfSource::AdviseSink 调用、真实 ITfContext/ITfRange 写入，以及候选窗光标定位真机联调。**
 
 ---
 
@@ -150,7 +150,7 @@ v0.2 已收口。本轮（P0–P4）新增：
 - **P2 离线质量**：模糊音（zh/ch/sh、ang/eng/ing，可开关）；`novatype-dict` TSV 词库管线 + Rime `.dict.yaml` 转 TSV CLI；基准测试（top-1 准确率 + 延迟预算，实测 ~19µs/查询）
 - **P3 桌面正式化第一步**：协议新增 Status/SetFuzzy/LearnedWords；设置区（模糊音开关、引擎状态、学习词列表）
 - **P4 LLM/Agent**：`novatype-llm`（LlmBackend + Ollama，超时熔断）；`novatype-agent`（//翻译 //润色 //回复 //总结）；桌面指令模式（回车执行、一键上屏、失败降级）
-- **P1 会话核心 / DLL 骨架**：`platforms/windows-tsf` 输入会话状态机（按键→组合→候选→上屏/翻页/退格/Esc，全单测）+ DaemonClient + TSF 注册元数据/Profile 注册计划 + `novatype_tsf.dll` 导出 regsvr32 入口 + minimal `IClassFactory` + minimal `ITfTextInputProcessor` + `ITfKeyEventSink` vtable（activation state + sink lifecycle + keymap/key_event path）+ edit-session operation planner/executor + TSF document adapter 占位 + candidate-window presentation/layout/paint/state model + native HWND wrapper/GDI renderer skeleton + WM_PAINT text drawing
+- **P1 会话核心 / DLL 骨架**：`platforms/windows-tsf` 输入会话状态机（按键→组合→候选→上屏/翻页/退格/Esc，全单测）+ DaemonClient + TSF 注册元数据/Profile 注册计划 + `novatype_tsf.dll` 导出 regsvr32 入口 + minimal `IClassFactory` + minimal `ITfTextInputProcessor` + `ITfKeyEventSink` vtable（activation state + SinkAdvisor/RealSinkAdvisor skeleton + keymap/key_event path）+ edit-session operation planner/executor + TSF document adapter 占位 + candidate-window presentation/layout/paint/state model + native HWND wrapper/GDI renderer skeleton + WM_PAINT text drawing
 - **安装器雏形**：`installer/windows/novatype.iss`（server/desktop 打包、启动项、TSF regserver TODO）、`build-package.ps1` 和 `check-size.ps1`；当前核心产物约 7.39 MB / 35 MB
 
 ### ⬜ 待办（需真机/人工验证或大体量，下轮优先级）

@@ -1,6 +1,6 @@
 use crate::{
     DaemonClient, InputSession, key_event,
-    sink::SinkState,
+    sink::{LocalSinkAdvisor, SinkAdvisor, SinkState},
     tsf_document::{TsfDocumentEditor, TsfEditContext},
 };
 
@@ -108,6 +108,7 @@ struct TextService {
     client_id: u32,
     activated: bool,
     sinks: SinkState,
+    sink_advisor: LocalSinkAdvisor,
     session: InputSession<DaemonClient>,
     document: TsfDocumentEditor,
 }
@@ -274,6 +275,7 @@ unsafe extern "system" fn create_instance(
         client_id: 0,
         activated: false,
         sinks: SinkState::default(),
+        sink_advisor: LocalSinkAdvisor::default(),
         session: InputSession::new(DaemonClient::new()),
         document: TsfDocumentEditor::new(),
     });
@@ -367,7 +369,9 @@ unsafe extern "system" fn text_service_activate(
         (*service).thread_mgr = thread_mgr;
         (*service).client_id = client_id;
         (*service).activated = true;
-        (*service).sinks.advise_key_event(1);
+        if let Ok(cookie) = (*service).sink_advisor.advise_key_event() {
+            (*service).sinks.advise_key_event(cookie);
+        }
         (*service).document.attach_context(TsfEditContext {
             thread_mgr,
             client_id,
@@ -387,7 +391,10 @@ unsafe extern "system" fn text_service_deactivate(this: *mut c_void) -> i32 {
         (*service).thread_mgr = ptr::null_mut();
         (*service).client_id = 0;
         (*service).activated = false;
-        (*service).sinks.unadvise_key_event();
+        if let Some(cookie) = (*service).sinks.key_event_cookie() {
+            let _ = (*service).sink_advisor.unadvise_key_event(cookie);
+            (*service).sinks.unadvise_key_event();
+        }
         (*service).document.detach_context();
     }
     S_OK
@@ -724,6 +731,7 @@ mod tests {
             client_id: 0,
             activated: false,
             sinks: crate::sink::SinkState::default(),
+            sink_advisor: crate::sink::LocalSinkAdvisor::default(),
             session: crate::InputSession::new(crate::DaemonClient::new()),
             document: crate::tsf_document::TsfDocumentEditor::new(),
         });
@@ -800,6 +808,7 @@ mod tests {
             client_id: 0,
             activated: false,
             sinks: crate::sink::SinkState::default(),
+            sink_advisor: crate::sink::LocalSinkAdvisor::default(),
             session: crate::InputSession::new(crate::DaemonClient::new()),
             document: crate::tsf_document::TsfDocumentEditor::new(),
         });
@@ -819,6 +828,7 @@ mod tests {
         assert!(!service.activated);
         assert_eq!(service.client_id, 0);
         assert!(!service.sinks.key_event_active());
+        assert_eq!(service.sink_advisor.unadvised(), &[1]);
         assert!(service.document.context().is_none());
     }
 
@@ -836,6 +846,7 @@ mod tests {
             client_id: 0,
             activated: false,
             sinks: crate::sink::SinkState::default(),
+            sink_advisor: crate::sink::LocalSinkAdvisor::default(),
             session: crate::InputSession::new(crate::DaemonClient::new()),
             document: crate::tsf_document::TsfDocumentEditor::new(),
         });
@@ -895,6 +906,7 @@ mod tests {
             client_id: 0,
             activated: false,
             sinks: crate::sink::SinkState::default(),
+            sink_advisor: crate::sink::LocalSinkAdvisor::default(),
             session: crate::InputSession::new(crate::DaemonClient::new()),
             document: crate::tsf_document::TsfDocumentEditor::new(),
         });
@@ -923,6 +935,7 @@ mod tests {
             client_id: 0,
             activated: false,
             sinks: crate::sink::SinkState::default(),
+            sink_advisor: crate::sink::LocalSinkAdvisor::default(),
             session: crate::InputSession::new(crate::DaemonClient::new()),
             document: crate::tsf_document::TsfDocumentEditor::new(),
         });

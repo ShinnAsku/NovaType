@@ -13,6 +13,7 @@ This folder currently contains the testable input-session core used by the futur
 - `DllCanUnloadNow` is backed by object and server-lock counters.
 - `Activate` / `Deactivate` now track thread manager pointer, client id, and activation state.
 - `sink` tracks key-event sink cookie lifecycle; `Activate` advises the modeled key sink and `Deactivate` unadvises it.
+- `SinkAdvisor` abstracts TSF sink advising; `LocalSinkAdvisor` is used today, and `RealSinkAdvisor` is the Windows placeholder for `ITfSource::AdviseSink` / `UnadviseSink`.
 - `keymap` maps Windows virtual keys to the shared `InputSession` state machine for the future key event sink.
 - `key_event` models `OnTestKeyDown` / `OnKeyDown`: it decides whether to eat a key and produces edit operations.
 - `TextService` now exposes an `ITfKeyEventSink` vtable; `QueryInterface(IID_ITfKeyEventSink)` works, and `OnTestKeyDown` / `OnKeyDown` call the `key_event` behavior layer.
@@ -35,13 +36,14 @@ Run from an elevated PowerShell when you want to exercise `regsvr32` manually:
 platforms\windows-tsf\register-dev.ps1
 platforms\windows-tsf\unregister-dev.ps1
 platforms\windows-tsf\verify-registration.ps1
+cargo run -p novatype-tsf --bin candidate-window-smoke
 ```
 
 The current skeleton registers COM metadata, exposes a class factory, creates a minimal `ITfTextInputProcessor` object, and exposes a tested `ITfKeyEventSink` vtable feeding `InputSession`. It also produces edit-session operation plans, executes them through a `DocumentEditor` boundary, has a TSF document adapter placeholder, and on Windows can create/show/hide/move and paint a candidate HWND wrapper. The object does not yet call real TSF `ITfSource` / `ITfContext` / `ITfRange` APIs.
 
 ## Remaining TSF COM Work
 
-1. Advise/unadvise the real `ITfKeyEventSink` through `ITfSource` during activation/deactivation.
+1. Replace `RealSinkAdvisor` placeholder body with real `ITfSource::AdviseSink` / `UnadviseSink` calls during activation/deactivation.
 2. Execute the `profile` plan through real `ITfInputProcessorProfiles` calls.
 3. Replace `TsfDocumentEditor` opaque context placeholders with real `ITfContext` / `ITfRange` edit-session execution.
 4. Implement native candidate window HWND renderer for `CandidateWindowView`.
