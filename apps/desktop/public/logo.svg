@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#197B98;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#E1A83B;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="keyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFFFFF;stop-opacity:0.92" />
+      <stop offset="100%" style="stop-color:#E7EEF1;stop-opacity:0.92" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#16303A" flood-opacity="0.28" />
+    </filter>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="6" result="coloredBlur" />
+      <feMerge>
+        <feMergeNode in="coloredBlur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" filter="url(#shadow)" />
+  <rect x="136" y="136" width="240" height="240" rx="52" fill="url(#keyGrad)" />
+  <rect x="136" y="136" width="240" height="240" rx="52" fill="none" stroke="#FFFFFF" stroke-width="6" opacity="0.62" />
+  <rect x="144" y="144" width="224" height="224" rx="44" fill="none" stroke="#C8D6DC" stroke-width="2" opacity="0.46" />
+  <rect x="184" y="186" width="32" height="140" rx="8" fill="#197B98" />
+  <polygon points="216,186 248,186 220,326 188,326" fill="#197B98" />
+  <rect x="296" y="186" width="32" height="140" rx="8" fill="#197B98" />
+  <g transform="translate(360, 120)" filter="url(#glow)">
+    <polygon points="32,0 38,26 64,32 38,38 32,64 26,38 0,32 26,26" fill="#F6D44B" />
+    <circle cx="32" cy="32" r="8" fill="#FFFFFF" />
+  </g>
+  <rect x="176" y="402" width="28" height="6" rx="3" fill="#FFFFFF" opacity="0.46" />
+  <rect x="216" y="402" width="16" height="6" rx="3" fill="#FFFFFF" opacity="0.46" />
+  <rect x="244" y="402" width="28" height="6" rx="3" fill="#FFFFFF" opacity="0.46" />
+  <rect x="284" y="402" width="16" height="6" rx="3" fill="#FFFFFF" opacity="0.46" />
+  <rect x="312" y="402" width="28" height="6" rx="3" fill="#FFFFFF" opacity="0.46" />
+</svg>

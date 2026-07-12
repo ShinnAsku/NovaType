@@ -1,0 +1,25 @@
+[workspace]
+members = [
+    "apps/desktop/src-tauri",
+    "crates/novatype-cli",
+    "crates/novatype-core",
+    "crates/novatype-model",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/novatype/novatype"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+panic = "abort"
+strip = "symbols"

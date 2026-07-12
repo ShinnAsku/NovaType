@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- 背景渐变：深邃宇宙蓝到星空紫 -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4F46E5;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#7C3AED;stop-opacity:1" />
+    </linearGradient>
+    <!-- 键帽高光渐变 -->
+    <linearGradient id="keyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFFFFF;stop-opacity:0.9" />
+      <stop offset="100%" style="stop-color:#E2E8F0;stop-opacity:0.9" />
+    </linearGradient>
+    <!-- 投影滤镜 -->
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#1E1B4B" flood-opacity="0.3"/>
+    </filter>
+    <!-- 星星发光滤镜 -->
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="6" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- 1. 背景：圆角底板 (如果不需要底色，删掉这一行) -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" filter="url(#shadow)"/>
+
+  <!-- 2. 核心键帽 (N 字母的视觉载体) -->
+  <!-- 键帽主体 -->
+  <rect x="136" y="136" width="240" height="240" rx="52" fill="url(#keyGrad)" />
+  <!-- 键帽内凹阴影 -->
+  <rect x="136" y="136" width="240" height="240" rx="52" fill="none" stroke="#FFFFFF" stroke-width="6" opacity="0.6"/>
+  <rect x="144" y="144" width="224" height="224" rx="44" fill="none" stroke="#CBD5E1" stroke-width="2" opacity="0.4"/>
+
+  <!-- 3. 字母 "N" (粗体，清爽) -->
+  <!-- 左竖 -->
+  <rect x="184" y="186" width="32" height="140" rx="8" fill="#4F46E5" />
+  <!-- 斜杠 -->
+  <polygon points="216,186 248,186 220,326 188,326" fill="#4F46E5" />
+  <!-- 右竖 -->
+  <rect x="296" y="186" width="32" height="140" rx="8" fill="#4F46E5" />
+
+  <!-- 4. 超级符号：右上角的 "新星" (Nova) -->
+  <g transform="translate(360, 120)" filter="url(#glow)">
+    <!-- 十字星辉 (四角星) -->
+    <polygon points="32,0 38,26 64,32 38,38 32,64 26,38 0,32 26,26" fill="#FDE047" />
+    <!-- 核心白点 -->
+    <circle cx="32" cy="32" r="8" fill="#FFFFFF" />
+  </g>
+
+  <!-- 5. 装饰：键盘底部的排列线 (暗示打字/输入) -->
+  <rect x="176" y="402" width="28" height="6" rx="3" fill="#FFFFFF" opacity="0.4" />
+  <rect x="216" y="402" width="16" height="6" rx="3" fill="#FFFFFF" opacity="0.4" />
+  <rect x="244" y="402" width="28" height="6" rx="3" fill="#FFFFFF" opacity="0.4" />
+  <rect x="284" y="402" width="16" height="6" rx="3" fill="#FFFFFF" opacity="0.4" />
+  <rect x="312" y="402" width="28" height="6" rx="3" fill="#FFFFFF" opacity="0.4" />
+
+</svg>

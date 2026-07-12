@@ -1,0 +1,8 @@
+/target/
+**/*.rs.bk
+*.pdb
+node_modules/
+apps/desktop/dist/
+
+# Local runtime data for future daemon/model experiments.
+/.novatype/
