@@ -1,11 +1,19 @@
 use novatype_core::{Candidate, Engine};
 use novatype_model::{CommitRecord, UserModel};
+use novatype_protocol::{
+    CandidateDto, Request, Response, default_data_dir, resolve_endpoint, send_request,
+};
 use std::env;
 use std::io::{self, Write};
-use std::path::PathBuf;
 
 fn main() {
-    let data_dir = data_dir();
+    let args = env::args().skip(1).collect::<Vec<_>>();
+    if args.first().is_some_and(|arg| arg == "--server") {
+        query_server(args.get(1).map(String::as_str));
+        return;
+    }
+
+    let data_dir = default_data_dir();
     if let Err(error) = std::fs::create_dir_all(&data_dir) {
         eprintln!("failed to create data dir {}: {error}", data_dir.display());
         return;
@@ -24,17 +32,33 @@ fn main() {
         engine.add_word(word.reading, word.text, word.frequency);
     }
 
-    match env::args().nth(1) {
+    match args.first() {
         Some(query) => {
-            let candidates = suggest(&engine, &model, &query);
-            print_candidates(&candidates, &query);
+            let candidates = suggest(&engine, &model, query);
+            print_candidates(&candidates, query);
         }
         None => repl(&mut engine, &model),
     }
 }
 
-fn data_dir() -> PathBuf {
-    env::var_os("NOVATYPE_DATA_DIR").map_or_else(|| PathBuf::from(".novatype"), PathBuf::from)
+fn query_server(input: Option<&str>) {
+    let Some(input) = input else {
+        eprintln!("usage: novatype-cli --server <pinyin>");
+        return;
+    };
+    let endpoint = resolve_endpoint();
+    match send_request(
+        &endpoint,
+        &Request::Suggest {
+            input: input.to_string(),
+            limit: 9,
+        },
+    ) {
+        Ok(Response::Candidates(candidates)) => print_candidate_dtos(&candidates, input),
+        Ok(Response::Error(error)) => eprintln!("server error: {error}"),
+        Ok(other) => eprintln!("unexpected server response: {other:?}"),
+        Err(error) => eprintln!("failed to query server at {endpoint}: {error}"),
+    }
 }
 
 fn suggest(engine: &Engine, model: &UserModel, input: &str) -> Vec<Candidate> {
@@ -113,6 +137,23 @@ fn commit(
 }
 
 fn print_candidates(candidates: &[Candidate], input: &str) {
+    if candidates.is_empty() {
+        println!("No candidates for `{input}`.");
+        return;
+    }
+
+    for (index, candidate) in candidates.iter().enumerate() {
+        println!(
+            "{}. {}\t{}\t{:.2}",
+            index + 1,
+            candidate.text,
+            candidate.reading.join(" "),
+            candidate.score
+        );
+    }
+}
+
+fn print_candidate_dtos(candidates: &[CandidateDto], input: &str) {
     if candidates.is_empty() {
         println!("No candidates for `{input}`.");
         return;

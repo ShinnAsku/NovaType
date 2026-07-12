@@ -16,9 +16,21 @@ cargo run -p novatype-cli -- nihao
 cargo run -p novatype-cli -- zhongguoren
 cargo test
 
+# v0.2 daemon protocol loop
+cargo run -p novatype-server
+cargo run -p novatype-cli -- --server zhongguoren
+
+# dictionary conversion
+cargo run -p novatype-dict --bin rime-to-tsv -- path\to\input.dict.yaml output.tsv
+
+# Windows TSF DLL skeleton
+cargo build -p novatype-tsf --release
+platforms\windows-tsf\check-exports.ps1
+platforms\windows-tsf\verify-registration.ps1  # registers/unregisters via regsvr32
+
 cd apps/desktop
 npm install
 npm run tauri dev
 ```
 
-The v0.1 scope is intentionally small: prove the local core path from pinyin segmentation to candidate ranking, then expose it through a Tauri practice window before adding Windows TSF integration.
+The desktop app prefers the running `novatyped` daemon and falls back to local core/model when the daemon is unavailable. The v0.2 scope proves this IPC loop before adding Windows TSF integration.

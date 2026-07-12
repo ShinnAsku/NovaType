@@ -13,8 +13,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+novatype-agent = { path = "../../../crates/novatype-agent" }
 novatype-core = { path = "../../../crates/novatype-core" }
+novatype-llm = { path = "../../../crates/novatype-llm" }
 novatype-model = { path = "../../../crates/novatype-model" }
+novatype-protocol = { path = "../../../crates/novatype-protocol" }
 serde = { version = "1", features = ["derive"] }
 tauri = { version = "2", features = [] }
 

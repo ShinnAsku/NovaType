@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  engine:
+    name: Engine (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format check
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --workspace --exclude novatype-desktop --all-targets -- -D warnings
+      - name: Tests
+        run: cargo test --workspace --exclude novatype-desktop
+
+  desktop:
+    name: Desktop (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Frontend build
+        working-directory: apps/desktop
+        run: |
+          npm ci
+          npm run build
+      - name: Desktop tests
+        run: cargo test -p novatype-desktop

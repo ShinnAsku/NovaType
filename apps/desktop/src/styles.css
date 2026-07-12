@@ -233,6 +233,105 @@ input:focus {
   background: rgba(25, 123, 152, 0.12);
 }
 
+.settings {
+  margin-top: 26px;
+  border-top: 1px solid rgba(53, 82, 95, 0.15);
+  padding-top: 16px;
+}
+
+.settings h2 {
+  margin: 0 0 12px;
+  color: #2b4450;
+  font-size: 16px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 10px;
+  color: #385260;
+  font-size: 14px;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.engine-status {
+  margin-left: auto;
+  color: #6c8390;
+  font-size: 13px;
+}
+
+.settings-row button {
+  border: 1px solid rgba(25, 123, 152, 0.35);
+  border-radius: 6px;
+  padding: 5px 12px;
+  color: #197b98;
+  background: rgba(255, 255, 255, 0.75);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.settings-row button:hover {
+  background: rgba(25, 123, 152, 0.1);
+}
+
+.learned-words {
+  flex: 1;
+  margin: 0;
+  padding: 0 0 0 4px;
+  list-style: none;
+  color: #2b4450;
+  font-size: 14px;
+}
+
+.learned-words li {
+  padding: 2px 0;
+}
+
+.agent-panel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  border: 1px solid rgba(136, 98, 27, 0.3);
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: rgba(255, 250, 235, 0.85);
+}
+
+.agent-label {
+  color: #88621b;
+  font-size: 13px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.agent-result {
+  flex: 1;
+  color: #4c3a10;
+  font-size: 15px;
+}
+
+.agent-panel button {
+  border: 1px solid rgba(136, 98, 27, 0.4);
+  border-radius: 6px;
+  padding: 4px 14px;
+  color: #88621b;
+  background: rgba(255, 255, 255, 0.8);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.agent-panel button:hover {
+  background: rgba(136, 98, 27, 0.1);
+}
+
 kbd {
   border: 1px solid rgba(53, 82, 95, 0.25);
   border-radius: 4px;

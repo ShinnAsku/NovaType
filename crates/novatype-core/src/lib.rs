@@ -25,8 +25,10 @@ pub struct LexiconEntry {
 #[derive(Debug, Clone)]
 pub struct Engine {
     syllables: Vec<String>,
+    seg_syllables: Vec<String>,
     lexicon: Vec<LexiconEntry>,
     bigrams: HashMap<String, HashMap<String, f64>>,
+    fuzzy: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -46,10 +48,39 @@ impl Default for Engine {
 impl Engine {
     #[must_use]
     pub fn new() -> Self {
+        let syllables = seed_syllables();
         Self {
-            syllables: seed_syllables(),
+            seg_syllables: syllables.clone(),
+            syllables,
             lexicon: seed_lexicon(),
             bigrams: seed_bigrams(),
+            fuzzy: false,
+        }
+    }
+
+    /// Enables or disables fuzzy pinyin matching
+    /// (`zh↔z`, `ch↔c`, `sh↔s`, `ang↔an`, `eng↔en`, `ing↔in`).
+    pub fn set_fuzzy(&mut self, enabled: bool) {
+        self.fuzzy = enabled;
+        self.rebuild_seg_syllables();
+    }
+
+    /// Returns whether fuzzy pinyin matching is enabled.
+    #[must_use]
+    pub fn fuzzy(&self) -> bool {
+        self.fuzzy
+    }
+
+    fn rebuild_seg_syllables(&mut self) {
+        self.seg_syllables.clone_from(&self.syllables);
+        if self.fuzzy {
+            for syllable in &self.syllables {
+                for variant in fuzzy_variants(syllable) {
+                    if !self.seg_syllables.contains(&variant) {
+                        self.seg_syllables.push(variant);
+                    }
+                }
+            }
         }
     }
 
@@ -80,6 +111,7 @@ impl Engine {
             text,
             frequency,
         });
+        self.rebuild_seg_syllables();
     }
 
     #[must_use]
@@ -116,7 +148,7 @@ impl Engine {
                 continue;
             }
 
-            for syllable in &self.syllables {
+            for syllable in &self.seg_syllables {
                 let end = start + syllable.len();
                 if end <= input.len() && &input[start..end] == syllable.as_str() {
                     let previous = states[start].clone();
@@ -187,7 +219,7 @@ impl Engine {
                         .reading
                         .iter()
                         .zip(&reading[start..end])
-                        .all(|(left, right)| left == right)
+                        .all(|(left, right)| left == right || (self.fuzzy && fuzzy_eq(left, right)))
             })
             .collect()
     }
@@ -209,6 +241,51 @@ fn normalize_input(input: &str) -> String {
         .filter(char::is_ascii_alphabetic)
         .flat_map(char::to_lowercase)
         .collect()
+}
+
+const FUZZY_INITIALS: [(&str, &str); 3] = [("zh", "z"), ("ch", "c"), ("sh", "s")];
+const FUZZY_FINALS: [(&str, &str); 3] = [("ang", "an"), ("eng", "en"), ("ing", "in")];
+
+/// Returns fuzzy spellings of `syllable` (excluding itself).
+fn fuzzy_variants(syllable: &str) -> Vec<String> {
+    let mut variants = Vec::new();
+
+    for (full, short) in FUZZY_INITIALS {
+        if let Some(rest) = syllable.strip_prefix(full) {
+            variants.push(format!("{short}{rest}"));
+        } else if let Some(rest) = syllable.strip_prefix(short)
+            && !syllable.starts_with(full)
+        {
+            variants.push(format!("{full}{rest}"));
+        }
+    }
+
+    let base = variants.clone();
+    for candidate in std::iter::once(syllable.to_string()).chain(base) {
+        for (full, short) in FUZZY_FINALS {
+            if let Some(head) = candidate.strip_suffix(full) {
+                let variant = format!("{head}{short}");
+                if variant != syllable && !variants.contains(&variant) {
+                    variants.push(variant);
+                }
+            } else if let Some(head) = candidate.strip_suffix(short) {
+                let variant = format!("{head}{full}");
+                if variant != syllable && !variants.contains(&variant) {
+                    variants.push(variant);
+                }
+            }
+        }
+    }
+
+    variants.retain(|variant| variant != syllable);
+    variants
+}
+
+/// Whether two syllables match under fuzzy rules.
+fn fuzzy_eq(left: &str, right: &str) -> bool {
+    left == right
+        || fuzzy_variants(left).iter().any(|variant| variant == right)
+        || fuzzy_variants(right).iter().any(|variant| variant == left)
 }
 
 fn score_entry(entry: &LexiconEntry) -> f64 {
@@ -422,6 +499,43 @@ mod tests {
         assert_eq!(
             candidates.first().map(|candidate| candidate.text.as_str()),
             Some("输入法")
+        );
+    }
+
+    #[test]
+    fn fuzzy_matches_zh_z() {
+        let mut engine = Engine::new();
+        engine.set_fuzzy(true);
+
+        let candidates = engine.suggest("zongguo", 5);
+
+        assert!(
+            candidates.iter().any(|candidate| candidate.text == "中国"),
+            "fuzzy z->zh should surface 中国, got {candidates:?}"
+        );
+    }
+
+    #[test]
+    fn fuzzy_disabled_by_default() {
+        let engine = Engine::new();
+        let candidates = engine.suggest("zongguo", 5);
+
+        assert!(
+            !candidates.iter().any(|candidate| candidate.text == "中国"),
+            "fuzzy must be opt-in"
+        );
+    }
+
+    #[test]
+    fn add_word_makes_new_syllables_segmentable() {
+        let mut engine = Engine::new();
+        engine.add_word(vec!["ce".to_string(), "shi".to_string()], "测试", 9_000);
+
+        let candidates = engine.suggest("ceshi", 3);
+
+        assert_eq!(
+            candidates.first().map(|candidate| candidate.text.as_str()),
+            Some("测试")
         );
     }
 }

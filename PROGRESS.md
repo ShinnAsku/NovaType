@@ -55,14 +55,19 @@
 ```
 novatype/
 ├── crates/
-│   ├── novatype-core/     # 拼音切分、词图、Viterbi、动态加词    ✅ 已实现
-│   ├── novatype-model/    # 用户模型：学习/衰减/造词/联想 (redb)  ✅ 已实现
-│   └── novatype-cli/      # 可学习 REPL（dogfood 入口）          ✅ 已实现
-├── apps/desktop/          # Tauri 2 练习场（候选窗设计稿预览）    ✅ 已实现
-│   ├── src/               # Vite + TypeScript 前端
-│   └── src-tauri/         # Rust 后端：suggest / commit 命令
-└── (规划中) crates/novatype-{dict,protocol,server,llm,agent}
-    (规划中) platforms/{windows-tsf,fcitx5-addon,macos-imk}
+│   ├── novatype-core/      # 拼音切分、词图、Viterbi、模糊音、动态加词  ✅
+│   ├── novatype-dict/      # TSV 词库解析/加载管线（FST 接入点）      ✅
+│   ├── novatype-model/     # 用户模型：学习/衰减/造词/联想 (redb)     ✅
+│   ├── novatype-protocol/  # 本地 socket + TCP 传输，bincode 协议     ✅
+│   ├── novatype-server/    # novatyped：单实例、本地 socket 默认      ✅
+│   ├── novatype-llm/       # LlmBackend trait + Ollama（超时熔断）    ✅
+│   ├── novatype-agent/     # //翻译 //润色 //回复 //总结 指令解析      ✅
+│   └── novatype-cli/       # 可学习 REPL + --server 协议客户端        ✅
+├── platforms/
+│   └── windows-tsf/        # 输入会话状态机 + daemon 客户端 + 注册元数据（COM 待接）🔄
+├── apps/desktop/           # Tauri 2：练习场 + 设置 + 学习词 + Agent    ✅
+├── installer/windows/      # Inno Setup 草案 + build-package.ps1         🔄
+└── .github/workflows/      # 三平台 CI（fmt/clippy/test + 前端）        ✅
 ```
 
 ---
@@ -72,11 +77,11 @@ novatype/
 | 版本 | 范围 | 验收标准 | 状态 |
 |---|---|---|---|
 | **v0.1** 引擎原型 | core 骨架；CLI 出候选；Tauri 练习场直连 core | 候选正确；响应 < 5ms；纯离线 | ✅ **完成** |
-| **v0.2** 学习与联想 | 用户自学习、自动造词、联想；daemon + IPC；Tauri 切 IPC | 习惯调整可复现；重启不丢数据 | 🔄 **进行中（约 60%）** |
-| **v0.3** Windows 可用 | TSF 薄壳 + 原生候选窗（按 §7.3 设计稿）+ 安装器 | 日常输入 dogfood 两周无崩溃 | ⬜ 未开始 |
-| **v0.4** LLM 接入 | Ollama 后端 + `//指令` 模式 + 熔断降级 + Agent 控制台 | 断网时体验零差异 | ⬜ 未开始 |
-| **v0.5** Linux + 设置 | fcitx5 addon；Tauri 设置界面/词库管理；rime-ice 一键导入 | fcitx5 日常可用 | ⬜ 未开始 |
-| **v1.0** 三平台正式版 | macOS IMKit；双拼/模糊音；真实词库（FST + bigram） | 安装包 ≤ 35 MB；三平台 CI | ⬜ 未开始 |
+| **v0.2** 学习与联想 | 用户自学习、自动造词、联想；daemon + IPC；Tauri 切 IPC | 习惯调整可复现；重启不丢数据 | ✅ **完成**（本地 socket 传输 + 单实例 + 自动拉起 + 三平台 CI） |
+| **v0.3** Windows 可用 | TSF 薄壳 + 原生候选窗（按 §7.3 设计稿）+ 安装器 | 日常输入 dogfood 两周无崩溃 | 🔄 **会话核心已就绪**（状态机+客户端全单测；COM 胶水待做） |
+| **v0.4** LLM 接入 | Ollama 后端 + `//指令` 模式 + 熔断降级 + Agent 控制台 | 断网时体验零差异 | ✅ **基础完成**（llm/agent crate + 桌面指令模式；防抖候选注入待 v0.3 候选窗） |
+| **v0.5** Linux + 设置 | fcitx5 addon；Tauri 设置界面/词库管理；rime-ice 一键导入 | fcitx5 日常可用 | 🔄 设置雏形已有（模糊音开关/状态/学习词）；fcitx5 未开始 |
+| **v1.0** 三平台正式版 | macOS IMKit；双拼/模糊音；真实词库（FST + bigram） | 安装包 ≤ 35 MB；三平台 CI | 🔄 模糊音已实现；词库管线（TSV）已就绪；其余未开始 |
 | **v2.0** Agent 深化 | candle 内嵌小模型重排、插件 API、tool-calling | 无 GPU rerank < 50ms | ⬜ 未开始 |
 
 ---
@@ -100,20 +105,31 @@ novatype/
 - `novatype-core::add_word`：运行时动态加词（学习词/未来词库加载的基础）
 - CLI 升级可学习 REPL：数字上屏 → 学习 → 打印联想；数据存 `.novatype/user.redb`
 - 桌面练习场接通学习闭环：上屏调用 `commit`、联想 chips 可点击连打
+- `novatype-protocol`：长度前缀 + bincode 消息，包含 `Suggest` / `Commit` / `Ping` 请求与候选/联想响应
+- `novatype-server`：`novatyped` 本地守护进程，加载用户模型和学习词，通过协议处理候选与上屏学习
+- CLI server 模式：`novatype-cli --server zhongguoren` 可真实跨进程请求 `novatyped`
+- Tauri 后端已切成协议客户端优先：`novatyped` 可用时走 IPC，不可用时自动 fallback 到本地 core/model，练习场开发体验不断
 - 品牌资产：logo.svg + Windows icon.ico
 
 ### 🔄 v0.2 剩余工作（下一步）
 
-1. `novatype-protocol`：IPC 消息定义（serde + bincode）
-2. `novatype-server`：novatyped 守护进程（`interprocess` 传输）
-3. Tauri 后端从直连 core 切换为 IPC 客户端
-4. 三平台 CI（引擎层 `cargo test`），防平台依赖潜入
+v0.2 已收口。本轮（P0–P4）新增：
 
-### ⬜ 更远的关键项
+- **P0 传输正式化**：`interprocess` 本地 socket（Windows Named Pipe 语义）默认，`tcp://` 可选；daemon 单实例；桌面端自动拉起 sibling `novatype-server`；平台规范数据目录（`%APPDATA%\NovaType` 等）；三平台 CI
+- **P2 离线质量**：模糊音（zh/ch/sh、ang/eng/ing，可开关）；`novatype-dict` TSV 词库管线 + Rime `.dict.yaml` 转 TSV CLI；基准测试（top-1 准确率 + 延迟预算，实测 ~19µs/查询）
+- **P3 桌面正式化第一步**：协议新增 Status/SetFuzzy/LearnedWords；设置区（模糊音开关、引擎状态、学习词列表）
+- **P4 LLM/Agent**：`novatype-llm`（LlmBackend + Ollama，超时熔断）；`novatype-agent`（//翻译 //润色 //回复 //总结）；桌面指令模式（回车执行、一键上屏、失败降级）
+- **P1 会话核心 / DLL 骨架**：`platforms/windows-tsf` 输入会话状态机（按键→组合→候选→上屏/翻页/退格/Esc，全单测）+ DaemonClient + TSF 注册元数据 + `novatype_tsf.dll` 导出 regsvr32 入口 + minimal `IClassFactory` + minimal `ITfTextInputProcessor` (`Activate`/`Deactivate`)
+- **安装器雏形**：`installer/windows/novatype.iss`（server/desktop 打包、启动项、TSF regserver TODO）和 `build-package.ps1`
 
-- `novatype-dict`：FST 词库编译/加载，接入真实词库（rime-essay 打包 + rime-ice 导入）
-- 自训 bigram 语言模型（量化压缩）
-- Windows TSF 薄壳 + 原生候选窗（参考 azooKey-Windows / weasel）
+### ⬜ 待办（需真机/人工验证或大体量，下轮优先级）
+
+1. **TSF COM 胶水层**（v0.3 核心）：`ITfTextInputProcessor` sink lifecycle、EditSession、候选窗 HWND；需管理员注册 + 真机 dogfood（参考 azooKey-Windows/weasel）
+2. Windows 安装器（Inno Setup：注册 TSF + 开机启动 + 卸载清理）
+3. 真实词库：rime-essay 转 TSV 打包 + rime-ice 导入向导 + FST 存储（Rime 转 TSV 已有，FST 待做）
+4. 自训 bigram 语言模型（语料清洗/量化）
+5. fcitx5 addon（v0.5）与 macOS IMKit（v1.0）
+6. 发布质量：日志体系、崩溃恢复、安装包尺寸门禁、隐私审计（密码框不记录等）
 
 ---
 
@@ -123,6 +139,10 @@ novatype/
 # 引擎 CLI（可学习 REPL：输拼音 → 输数字上屏）
 cargo run -p novatype-cli            # REPL
 cargo run -p novatype-cli -- nihao   # 单次查询
+
+# v0.2 daemon 协议验证
+cargo run -p novatype-server
+cargo run -p novatype-cli -- --server zhongguoren
 
 # 桌面练习场
 cd apps/desktop

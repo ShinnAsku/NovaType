@@ -7,6 +7,18 @@ type Candidate = {
   score: number;
 };
 
+type Status = {
+  version: string;
+  fuzzy: boolean;
+  learned_words: number;
+};
+
+type Word = {
+  text: string;
+  reading: string[];
+  frequency: number;
+};
+
 const PAGE_SIZE = 5;
 
 const app = document.querySelector<HTMLDivElement>("#app");
@@ -51,7 +63,28 @@ app.innerHTML = `
       <div id="predictions" class="predictions"></div>
     </div>
 
-    <p class="hint">翻页：<kbd>-</kbd> / <kbd>=</kbd>　清空拼音：<kbd>Esc</kbd>　该窗口是 v0.3 原生候选窗的设计稿预览</p>
+    <div id="agent-panel" class="agent-panel" hidden>
+      <span class="agent-label">✦ Agent</span>
+      <span id="agent-result" class="agent-result"></span>
+      <button id="agent-accept" type="button" hidden>上屏</button>
+    </div>
+
+    <p class="hint">翻页：<kbd>-</kbd> / <kbd>=</kbd>　清空拼音：<kbd>Esc</kbd>　指令：<kbd>//翻译 hello</kbd> 后回车　该窗口是 v0.3 原生候选窗的设计稿预览</p>
+
+    <section class="settings">
+      <h2>引擎设置</h2>
+      <div class="settings-row">
+        <label class="toggle">
+          <input id="fuzzy-toggle" type="checkbox" />
+          <span>模糊音（zh↔z、ch↔c、sh↔s、ang↔an、eng↔en、ing↔in）</span>
+        </label>
+        <span id="engine-status" class="engine-status"></span>
+      </div>
+      <div class="settings-row">
+        <button id="refresh-words" type="button">刷新学习词</button>
+        <ul id="learned-words" class="learned-words"></ul>
+      </div>
+    </section>
   </section>
 `;
 
@@ -72,12 +105,30 @@ const pagePrev = mustQuery<HTMLButtonElement>("#page-prev");
 const pageNext = mustQuery<HTMLButtonElement>("#page-next");
 const predictionsPanel = mustQuery<HTMLDivElement>("#predictions-panel");
 const predictionsRow = mustQuery<HTMLDivElement>("#predictions");
+const fuzzyToggle = mustQuery<HTMLInputElement>("#fuzzy-toggle");
+const engineStatus = mustQuery<HTMLSpanElement>("#engine-status");
+const refreshWordsButton = mustQuery<HTMLButtonElement>("#refresh-words");
+const learnedWordsList = mustQuery<HTMLUListElement>("#learned-words");
+const agentPanel = mustQuery<HTMLDivElement>("#agent-panel");
+const agentResult = mustQuery<HTMLSpanElement>("#agent-result");
+const agentAccept = mustQuery<HTMLButtonElement>("#agent-accept");
 
 let allCandidates: Candidate[] = [];
 let page = 0;
 
 async function refreshCandidates(): Promise<void> {
   const input = queryInput.value.trim();
+
+  if (input.startsWith("//")) {
+    allCandidates = [];
+    page = 0;
+    render();
+    agentPanel.hidden = false;
+    agentResult.textContent = "指令模式：回车执行（需本地 Ollama）";
+    agentAccept.hidden = true;
+    return;
+  }
+  agentPanel.hidden = true;
 
   if (!input) {
     allCandidates = [];
@@ -89,6 +140,21 @@ async function refreshCandidates(): Promise<void> {
   allCandidates = await invoke<Candidate[]>("suggest", { input, limit: 20 });
   page = 0;
   render();
+}
+
+async function runAgent(): Promise<void> {
+  const input = queryInput.value.trim();
+  agentPanel.hidden = false;
+  agentAccept.hidden = true;
+  agentResult.textContent = "生成中…";
+
+  try {
+    const output = await invoke<string>("agent_run", { input, model: null });
+    agentResult.textContent = output;
+    agentAccept.hidden = false;
+  } catch (error) {
+    agentResult.textContent = `失败：${String(error)}`;
+  }
 }
 
 function render(): void {
@@ -203,6 +269,12 @@ queryInput.addEventListener("input", () => {
 });
 
 queryInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && queryInput.value.trim().startsWith("//")) {
+    event.preventDefault();
+    void runAgent();
+    return;
+  }
+
   if (allCandidates.length === 0) {
     return;
   }
@@ -243,5 +315,59 @@ pageNext.addEventListener("click", () => {
   turnPage(1);
 });
 
+async function refreshStatus(): Promise<void> {
+  try {
+    const status = await invoke<Status>("status");
+    engineStatus.textContent = `引擎 ${status.version} · 学习词 ${status.learned_words}`;
+    fuzzyToggle.checked = status.fuzzy;
+  } catch (error) {
+    engineStatus.textContent = "引擎状态不可用";
+    console.error("status failed", error);
+  }
+}
+
+async function refreshLearnedWords(): Promise<void> {
+  try {
+    const words = await invoke<Word[]>("learned_words");
+    learnedWordsList.replaceChildren(
+      ...words.map((word) => {
+        const item = document.createElement("li");
+        item.textContent = `${word.text}（${word.reading.join(" ")}）`;
+        return item;
+      }),
+    );
+    if (words.length === 0) {
+      const item = document.createElement("li");
+      item.textContent = "暂无自动学习的词（连续上屏同一组合 3 次后出现）";
+      learnedWordsList.replaceChildren(item);
+    }
+  } catch (error) {
+    console.error("learned_words failed", error);
+  }
+}
+
+fuzzyToggle.addEventListener("change", () => {
+  void invoke("set_fuzzy", { enabled: fuzzyToggle.checked }).then(() => {
+    void refreshCandidates();
+    void refreshStatus();
+  });
+});
+
+refreshWordsButton.addEventListener("click", () => {
+  void refreshLearnedWords();
+});
+
+agentAccept.addEventListener("click", () => {
+  const text = agentResult.textContent ?? "";
+  if (text) {
+    outputArea.value += text;
+    queryInput.value = "";
+    agentPanel.hidden = true;
+    queryInput.focus();
+  }
+});
+
 queryInput.focus();
 void refreshCandidates();
+void refreshStatus();
+void refreshLearnedWords();

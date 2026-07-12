@@ -1,9 +1,15 @@
 [workspace]
 members = [
     "apps/desktop/src-tauri",
+    "crates/novatype-agent",
     "crates/novatype-cli",
     "crates/novatype-core",
+    "crates/novatype-dict",
+    "crates/novatype-llm",
     "crates/novatype-model",
+    "crates/novatype-protocol",
+    "crates/novatype-server",
+    "platforms/windows-tsf",
 ]
 resolver = "2"
 

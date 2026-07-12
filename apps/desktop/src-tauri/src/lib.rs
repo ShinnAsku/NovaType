@@ -1,6 +1,9 @@
 use novatype_core::Engine;
 use novatype_model::{CommitRecord, ModelError, UserModel};
-use serde::Serialize;
+use novatype_protocol::{
+    CandidateDto, Request, Response, StatusDto, WordDto, default_data_dir, resolve_endpoint,
+    send_request,
+};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -8,6 +11,7 @@ struct AppState {
     engine: Mutex<Engine>,
     model: UserModel,
     prev_commit: Mutex<Option<CommitRecord>>,
+    server_addr: String,
 }
 
 impl AppState {
@@ -24,18 +28,50 @@ impl AppState {
             engine: Mutex::new(engine),
             model,
             prev_commit: Mutex::new(None),
+            server_addr: resolve_endpoint(),
         })
     }
 }
 
-#[derive(Debug, Serialize)]
-struct CandidateDto {
-    text: String,
-    reading: Vec<String>,
-    score: f64,
+/// Best-effort: make sure a daemon is reachable, spawning a sibling
+/// `novatype-server` binary when it is not. Fallback to the in-process
+/// engine keeps working when neither succeeds.
+fn ensure_daemon(endpoint: &str) {
+    if send_request(endpoint, &Request::Ping).is_ok() {
+        return;
+    }
+
+    let Some(server) = sibling_server_path() else {
+        return;
+    };
+    if let Err(error) = std::process::Command::new(&server).spawn() {
+        eprintln!("failed to spawn {}: {error}", server.display());
+    }
+}
+
+fn sibling_server_path() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let name = if cfg!(windows) {
+        "novatype-server.exe"
+    } else {
+        "novatype-server"
+    };
+    let path = dir.join(name);
+    path.exists().then_some(path)
 }
 
 fn do_suggest(state: &AppState, input: &str, limit: usize) -> Vec<CandidateDto> {
+    if let Ok(Response::Candidates(candidates)) = send_request(
+        &state.server_addr,
+        &Request::Suggest {
+            input: input.to_string(),
+            limit,
+        },
+    ) {
+        return candidates;
+    }
+
     let limit = limit.clamp(1, 20);
     let mut candidates = state
         .engine
@@ -59,6 +95,16 @@ fn do_commit(
     text: &str,
     reading: Vec<String>,
 ) -> Result<Vec<String>, ModelError> {
+    if let Ok(Response::Predictions(predictions)) = send_request(
+        &state.server_addr,
+        &Request::Commit {
+            text: text.to_string(),
+            reading: reading.clone(),
+        },
+    ) {
+        return Ok(predictions);
+    }
+
     let record = CommitRecord {
         text: text.to_string(),
         reading,
@@ -83,6 +129,85 @@ fn do_commit(
     Ok(predictions)
 }
 
+fn do_status(state: &AppState) -> StatusDto {
+    if let Ok(Response::Status(status)) = send_request(&state.server_addr, &Request::Status) {
+        return status;
+    }
+
+    StatusDto {
+        version: format!("{} (local)", env!("CARGO_PKG_VERSION")),
+        fuzzy: state.engine.lock().expect("engine lock poisoned").fuzzy(),
+        learned_words: state
+            .model
+            .learned_words()
+            .map(|words| words.len())
+            .unwrap_or(0),
+    }
+}
+
+fn do_set_fuzzy(state: &AppState, enabled: bool) {
+    let _ = send_request(&state.server_addr, &Request::SetFuzzy(enabled));
+    state
+        .engine
+        .lock()
+        .expect("engine lock poisoned")
+        .set_fuzzy(enabled);
+}
+
+fn do_learned_words(state: &AppState) -> Vec<WordDto> {
+    if let Ok(Response::Words(words)) = send_request(&state.server_addr, &Request::LearnedWords) {
+        return words;
+    }
+
+    state
+        .model
+        .learned_words()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|word| WordDto {
+            text: word.text,
+            reading: word.reading,
+            frequency: word.frequency,
+        })
+        .collect()
+}
+
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+fn status(state: tauri::State<'_, AppState>) -> StatusDto {
+    do_status(&state)
+}
+
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+fn set_fuzzy(state: tauri::State<'_, AppState>, enabled: bool) {
+    do_set_fuzzy(&state, enabled);
+}
+
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+fn learned_words(state: tauri::State<'_, AppState>) -> Vec<WordDto> {
+    do_learned_words(&state)
+}
+
+/// Runs an agent command (`//翻译 ...`) against the local Ollama backend.
+/// Runs on a blocking thread so the UI stays responsive; errors degrade to a
+/// user-visible message and never affect normal candidates.
+#[tauri::command]
+async fn agent_run(input: String, model: Option<String>) -> Result<String, String> {
+    let Some(command) = novatype_agent::parse(&input) else {
+        return Err("不是有效的指令（示例：//翻译 hello）".to_string());
+    };
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let backend =
+            novatype_llm::OllamaBackend::local(model.unwrap_or_else(|| "qwen2:0.5b".to_string()));
+        novatype_agent::execute(&command, &backend).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 #[allow(clippy::needless_pass_by_value)]
 #[tauri::command]
 fn suggest(state: tauri::State<'_, AppState>, input: String, limit: usize) -> Vec<CandidateDto> {
@@ -100,7 +225,7 @@ fn commit(
 }
 
 fn data_dir() -> PathBuf {
-    std::env::var_os("NOVATYPE_DATA_DIR").map_or_else(|| PathBuf::from(".novatype"), PathBuf::from)
+    default_data_dir()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -112,9 +237,17 @@ fn data_dir() -> PathBuf {
 /// create or run the application runtime.
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState::new(&data_dir())?;
+    ensure_daemon(&state.server_addr);
     tauri::Builder::default()
         .manage(state)
-        .invoke_handler(tauri::generate_handler![suggest, commit])
+        .invoke_handler(tauri::generate_handler![
+            suggest,
+            commit,
+            status,
+            set_fuzzy,
+            learned_words,
+            agent_run
+        ])
         .run(tauri::generate_context!())?;
     Ok(())
 }
@@ -133,7 +266,9 @@ mod tests {
             "novatype-desktop-test-{}-{nanos}",
             std::process::id()
         ));
-        AppState::new(&dir).expect("temp state")
+        let mut state = AppState::new(&dir).expect("temp state");
+        state.server_addr = "127.0.0.1:9".to_string();
+        state
     }
 
     #[test]
@@ -144,6 +279,19 @@ mod tests {
         assert_eq!(
             candidates.first().map(|candidate| candidate.text.as_str()),
             Some("你好")
+        );
+    }
+
+    #[test]
+    fn suggest_falls_back_when_daemon_is_unavailable() {
+        let mut state = temp_state();
+        state.server_addr = "127.0.0.1:9".to_string();
+
+        let candidates = do_suggest(&state, "shurufa", 3);
+
+        assert_eq!(
+            candidates.first().map(|candidate| candidate.text.as_str()),
+            Some("输入法")
         );
     }
 
