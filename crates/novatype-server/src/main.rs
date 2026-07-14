@@ -2,8 +2,8 @@ use interprocess::local_socket::{GenericNamespaced, ListenerOptions, ToNsName, p
 use novatype_core::Engine;
 use novatype_model::{CommitRecord, UserModel};
 use novatype_protocol::{
-    CandidateDto, Request, Response, default_data_dir, read_message, resolve_endpoint, tcp_addr,
-    write_message,
+    CandidateDto, Request, Response, DEFAULT_ADDR, default_data_dir, read_message, resolve_endpoint,
+    tcp_addr, write_message,
 };
 use std::error::Error;
 use std::io::{Read, Write};
@@ -118,11 +118,41 @@ fn main() -> Result<(), Box<dyn Error>> {
     let data_dir = default_data_dir();
     let mut runtime = Runtime::open(&data_dir)?;
 
+    // Always bind both local socket and TCP so the DLL can reach us
+    // regardless of whether the host process can resolve named pipes.
     if let Some(addr) = tcp_addr(&endpoint) {
         return serve_tcp(&mut runtime, addr);
     }
 
+    // Start TCP listener on the default address in the background
+    // while the main loop serves the local socket.
+    let tcp_addr = DEFAULT_ADDR.to_string();
+    std::thread::spawn(move || {
+        let mut rt = match Runtime::open(&data_dir) {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("tcp background: failed to open model: {e}");
+                return;
+            }
+        };
+        if let Err(e) = serve_tcp_background(&mut rt, &tcp_addr) {
+            eprintln!("tcp background: {e}");
+        }
+    });
+
     serve_local_socket(&mut runtime, &endpoint)
+}
+
+fn serve_tcp_background(runtime: &mut Runtime, addr: &str) -> Result<(), Box<dyn Error>> {
+    let listener = TcpListener::bind(addr)?;
+    println!("novatyped listening on tcp://{addr}");
+    for stream in listener.incoming() {
+        match stream {
+            Ok(mut stream) => handle_stream(runtime, &mut stream),
+            Err(error) => eprintln!("tcp connection failed: {error}"),
+        }
+    }
+    Ok(())
 }
 
 fn serve_tcp(runtime: &mut Runtime, addr: &str) -> Result<(), Box<dyn Error>> {

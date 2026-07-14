@@ -26,7 +26,9 @@ pub mod native_window;
 #[cfg(windows)]
 mod registration;
 
-use novatype_protocol::{CandidateDto, Request, Response, resolve_endpoint, send_request};
+use novatype_protocol::{
+    CandidateDto, DEFAULT_ADDR, Request, Response, resolve_endpoint, send_request,
+};
 
 #[cfg(windows)]
 const S_OK: i32 = 0;
@@ -85,15 +87,26 @@ pub trait EngineClient {
 }
 
 /// Engine client backed by the `novatyped` daemon.
+///
+/// Tries the local socket endpoint first, then falls back to a loopback TCP
+/// endpoint so the DLL also works when the host process cannot resolve the
+/// named pipe (e.g. UWP apps or sandboxed processes).
 pub struct DaemonClient {
     endpoint: String,
+    /// Secondary endpoint tried when the primary one fails.
+    fallback: String,
 }
 
 impl DaemonClient {
     #[must_use]
     pub fn new() -> Self {
+        let primary = resolve_endpoint();
+        // Always keep the loopback TCP address as a fallback — some host
+        // processes (e.g. UWP, elevated Notepad) cannot reach the named pipe.
+        let fallback = format!("tcp://{DEFAULT_ADDR}");
         Self {
-            endpoint: resolve_endpoint(),
+            endpoint: primary,
+            fallback,
         }
     }
 }
@@ -106,28 +119,43 @@ impl Default for DaemonClient {
 
 impl EngineClient for DaemonClient {
     fn suggest(&mut self, input: &str, limit: usize) -> Vec<CandidateDto> {
-        match send_request(
-            &self.endpoint,
-            &Request::Suggest {
-                input: input.to_string(),
-                limit,
-            },
-        ) {
+        let request = &Request::Suggest {
+            input: input.to_string(),
+            limit,
+        };
+        // Try primary endpoint first, then fallback.
+        match send_request(&self.endpoint, request) {
             Ok(Response::Candidates(candidates)) => candidates,
-            _ => Vec::new(),
+            _ => {
+                if self.fallback == self.endpoint {
+                    Vec::new()
+                } else {
+                    match send_request(&self.fallback, request) {
+                        Ok(Response::Candidates(candidates)) => candidates,
+                        _ => Vec::new(),
+                    }
+                }
+            }
         }
     }
 
     fn commit(&mut self, text: &str, reading: &[String]) -> Vec<String> {
-        match send_request(
-            &self.endpoint,
-            &Request::Commit {
-                text: text.to_string(),
-                reading: reading.to_vec(),
-            },
-        ) {
+        let request = &Request::Commit {
+            text: text.to_string(),
+            reading: reading.to_vec(),
+        };
+        match send_request(&self.endpoint, request) {
             Ok(Response::Predictions(predictions)) => predictions,
-            _ => Vec::new(),
+            _ => {
+                if self.fallback == self.endpoint {
+                    Vec::new()
+                } else {
+                    match send_request(&self.fallback, request) {
+                        Ok(Response::Predictions(predictions)) => predictions,
+                        _ => Vec::new(),
+                    }
+                }
+            }
         }
     }
 }

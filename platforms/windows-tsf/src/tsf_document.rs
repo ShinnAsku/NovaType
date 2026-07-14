@@ -389,32 +389,33 @@ fn request_edit_session(
 fn fallback_commit_text(text: &str) {
     for unit in text.encode_utf16() {
         unsafe {
-            let inputs = [
-                RawInput {
-                    input_type: INPUT_KEYBOARD,
-                    keyboard: RawKeyboardInput {
-                        virtual_key: 0,
-                        scan: unit,
-                        flags: KEYEVENTF_UNICODE,
-                        time: 0,
-                        extra_info: 0,
-                    },
+            let keydown = WinInput {
+                input_type: INPUT_KEYBOARD,
+                _pad: 0,
+                ki: WinKeybdInput {
+                    wVk: 0,
+                    wScan: unit,
+                    dwFlags: KEYEVENTF_UNICODE,
+                    time: 0,
+                    dwExtraInfo: 0,
                 },
-                RawInput {
-                    input_type: INPUT_KEYBOARD,
-                    keyboard: RawKeyboardInput {
-                        virtual_key: 0,
-                        scan: unit,
-                        flags: KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
-                        time: 0,
-                        extra_info: 0,
-                    },
+            };
+            let keyup = WinInput {
+                input_type: INPUT_KEYBOARD,
+                _pad: 0,
+                ki: WinKeybdInput {
+                    wVk: 0,
+                    wScan: unit,
+                    dwFlags: KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
+                    time: 0,
+                    dwExtraInfo: 0,
                 },
-            ];
+            };
+            let inputs = [keydown, keyup];
             let sent = SendInput(
                 u32::try_from(inputs.len()).unwrap_or(0),
                 inputs.as_ptr(),
-                i32::try_from(size_of::<RawInput>()).unwrap_or(0),
+                i32::try_from(size_of::<WinInput>()).unwrap_or(0),
             );
             crate::debug_log::log(&format!("fallback SendInput unit={unit:#06X} sent={sent}"));
         }
@@ -431,26 +432,34 @@ const KEYEVENTF_KEYUP: u32 = 0x0002;
 #[cfg(all(windows, not(test)))]
 const KEYEVENTF_UNICODE: u32 = 0x0004;
 
+/// Windows `INPUT` struct for `SendInput`.
+///
+/// Layout matches the Win32 definition: `type` (u32) + 4 bytes padding +
+/// union (24 bytes for KEYBDINPUT on x64) = 32 bytes total on x64, 28 on x86.
+/// The padding is required by the ABI because the union `KEYBDINPUT` starts
+/// at offset 8 (aligned to pointer size on x64), but `u32 type` is only 4 bytes.
 #[cfg(all(windows, not(test)))]
 #[repr(C)]
-struct RawInput {
+struct WinInput {
     input_type: u32,
-    keyboard: RawKeyboardInput,
+    _pad: u32, // alignment padding for the union
+    ki: WinKeybdInput,
 }
 
 #[cfg(all(windows, not(test)))]
+#[allow(non_snake_case)]
 #[repr(C)]
-struct RawKeyboardInput {
-    virtual_key: u16,
-    scan: u16,
-    flags: u32,
+struct WinKeybdInput {
+    wVk: u16,
+    wScan: u16,
+    dwFlags: u32,
     time: u32,
-    extra_info: usize,
+    dwExtraInfo: usize,
 }
 
 #[cfg(all(windows, not(test)))]
 unsafe extern "system" {
-    fn SendInput(input_count: u32, inputs: *const RawInput, input_size: i32) -> u32;
+    fn SendInput(input_count: u32, inputs: *const WinInput, input_size: i32) -> u32;
 }
 
 /// Reads the caret/selection rectangle inside a granted edit session.
